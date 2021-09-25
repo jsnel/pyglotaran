@@ -311,6 +311,8 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     shifted_axis = model_axis - center - shift
     left_shifted_axis_indices = np.where(shifted_axis < 2 * width)[0]
     left_shifted_axis = shifted_axis[left_shifted_axis_indices]
+    right_shifted_axis_indices = np.where(shifted_axis > -2 * width)[0]
+    right_shifted_axis = shifted_axis[right_shifted_axis_indices]
     d = width ** 2
     pos_idx = np.where(rates >= 0)[0]
     neg_idx = np.where(rates < 0)[0]
@@ -319,7 +321,9 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     dk = k * d
 
     a = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    a[:, pos_idx] = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx])
+    a[np.ix_(right_shifted_axis_indices, pos_idx)] = np.exp(
+        (-1 * right_shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx]
+    )
 
     a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
         (-1 * left_shifted_axis[:, None] + 0.5 * dk[neg_idx]) * k[neg_idx]
@@ -328,7 +332,9 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     sqwidth = np.sqrt(2) * width
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    b[:, pos_idx] = 1 + erf((shifted_axis[:, None] - dk[pos_idx]) / sqwidth)
+    b[np.ix_(right_shifted_axis_indices, pos_idx)] = 1 + erf(
+        (right_shifted_axis[:, None] - dk[pos_idx]) / sqwidth
+    )
     b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
         (left_shifted_axis[:, None] - dk[neg_idx]) / -sqwidth
     )
