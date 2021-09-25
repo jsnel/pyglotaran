@@ -306,6 +306,7 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     width: float,
     shift: float,
     scale: float,
+    show_debug_plot: bool = False,
 ):
     shifted_axis = model_axis - center - shift
     left_shifted_axis_indices = np.where(shifted_axis < 2 * width)[0]
@@ -337,4 +338,83 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     )
 
     osc = a * b * scale
+    if show_debug_plot:
+        _debug_plot_oscillation_decomposition(shifted_axis, a, b, osc)
+        _debug_plot_decomposition_real_imag(shifted_axis, a, b, osc)
+
     return np.concatenate((osc.real, osc.imag), axis=1)
+
+
+def _debug_plot_decomposition_real_imag(shifted_axis, a, b, osc):
+    import matplotlib.pyplot as plt
+    from pyglotaran_extras.plotting.style import PlotStyle
+
+    plot_style = PlotStyle()
+    fig, axes = plt.subplots(5, 2, figsize=(25, 25))
+    # 24:124 is approx -0.05 to 0.25 on times axis
+    plt.rc("axes", prop_cycle=plot_style.cycler)
+    axes[0, 0].plot(shifted_axis[24:124], osc.real[24:124, 14:])
+    axes[0, 1].plot(shifted_axis[24:124], osc.imag[24:124, 14:])
+    axes[1, 0].plot(shifted_axis[24:124], osc.real[24:124, 9:14])
+    axes[1, 1].plot(shifted_axis[24:124], osc.imag[24:124, 9:14])
+    axes[2, 0].plot(shifted_axis[24:124], osc.real[24:124, 6:9])
+    axes[2, 1].plot(shifted_axis[24:124], osc.imag[24:124, 6:9])
+    axes[3, 0].plot(shifted_axis[24:124], osc.real[24:124, 3:6])
+    axes[3, 1].plot(shifted_axis[24:124], osc.imag[24:124, 3:6])
+    axes[4, 0].plot(shifted_axis[24:124], osc.real[24:124, 0:3])
+    axes[4, 1].plot(shifted_axis[24:124], osc.imag[24:124, 0:3])
+    # plt.rc("axes", prop_cycle=plot_style.cycler)
+    plt.show()
+
+
+def _debug_plot_oscillation_decomposition(shifted_axis, a, b, osc):
+    # TODO: remove debugging code
+    # For debugging only
+    import matplotlib.pyplot as plt
+    from pyglotaran_extras.plotting.style import PlotStyle
+
+    plot_style = PlotStyle()
+    fig, axes = plt.subplots(4, 3, figsize=(25, 25))
+    plt.rc("axes", prop_cycle=plot_style.cycler)
+    # 24:124 is approx -0.05 to 0.25 on times axis
+    axes[0, 0].plot(shifted_axis[24:124], a[24:124, :14])
+    axes[1, 0].plot(shifted_axis[24:124], b[24:124, :14])
+    axes[2, 0].plot(shifted_axis[24:124], osc.real[24:124, :14])
+    axes[3, 0].plot(shifted_axis[24:124], osc.imag[24:124, :14])
+    axes[0, 1].plot(shifted_axis[24:124], a[24:124, 14:])
+    axes[1, 1].plot(shifted_axis[24:124], b[24:124, 14:])
+    axes[2, 1].plot(shifted_axis[24:124], osc.real[24:124, 14:])
+    axes[3, 1].plot(shifted_axis[24:124], osc.imag[24:124, 14:])
+    axes[0, 2].plot(shifted_axis[24:124], a[24:124, :])
+    axes[1, 2].plot(shifted_axis[24:124], b[24:124, :])
+    axes[2, 2].plot(shifted_axis[24:124], osc.real[24:124, :])
+    axes[3, 2].plot(shifted_axis[24:124], osc.imag[24:124, :])
+    cols = [f"{col} rates" for col in ["positive", "negative", "all"]]
+    rows = [f"{row}" for row in ["a", "b", "osc.\nreal", "osc.\nimag"]]
+    pad = 5  # in points
+    for ax, col in zip(axes[0], cols):
+        ax.annotate(
+            col,
+            xy=(0.5, 1),
+            xytext=(0, 4 * pad),
+            xycoords="axes fraction",
+            textcoords="offset points",
+            size="large",
+            ha="center",
+            va="baseline",
+            bbox={"facecolor": "none", "edgecolor": "black", "boxstyle": "round,pad=1"},
+        )
+
+    for ax, row in zip(axes[:, 0], rows):
+        ax.annotate(
+            row,
+            xy=(0, 0.5),
+            xytext=(-ax.yaxis.labelpad - pad, 0),
+            xycoords=ax.yaxis.label,
+            textcoords="offset points",
+            size="large",
+            ha="right",
+            va="center",
+            bbox={"facecolor": "none", "edgecolor": "black", "boxstyle": "round,pad=1"},
+        )
+    plt.show()
