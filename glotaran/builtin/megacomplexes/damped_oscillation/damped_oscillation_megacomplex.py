@@ -97,7 +97,7 @@ class DampedOscillationMegacomplex(Megacomplex):
                 global_index, global_axis
             )
             for center, width, scale in zip(centers, widths, scales):
-                matrix += calculate_damped_oscillation_matrix_gaussian_irf(
+                matrix += calculate_damped_oscillation_matrix_gaussian_irf3(
                     frequencies,
                     rates,
                     model_axis,
@@ -273,4 +273,68 @@ def calculate_damped_oscillation_matrix_gaussian_irf(
 
     osc = a * b * scale
 
+    return np.concatenate((osc.real, osc.imag), axis=1)
+
+
+def calculate_damped_oscillation_matrix_gaussian_irf_org(
+    frequencies: np.ndarray,
+    rates: np.ndarray,
+    model_axis: np.ndarray,
+    center: float,
+    width: float,
+    shift: float,
+    scale: float,
+):
+    shifted_axis = model_axis - center - shift
+    d = width ** 2
+    k = rates + 1j * frequencies
+    dk = k * d
+    a = (-1 * shifted_axis[:, None] + 0.5 * dk) * k
+    a = np.minimum(a, 709)
+    a = np.exp(a)
+    sqwidth = np.sqrt(2) * width
+    b = 1 + erf((shifted_axis[:, None] - dk) / sqwidth)
+    osc = a * b * scale
+    return np.concatenate((osc.real, osc.imag), axis=1)
+
+
+def calculate_damped_oscillation_matrix_gaussian_irf3(
+    frequencies: np.ndarray,
+    rates: np.ndarray,
+    model_axis: np.ndarray,
+    center: float,
+    width: float,
+    shift: float,
+    scale: float,
+):
+    shifted_axis = model_axis - center - shift
+    left_shifted_axis_indices = np.where(shifted_axis < 2 * width)[0]
+    left_shifted_axis = shifted_axis[left_shifted_axis_indices]
+    d = width ** 2
+    positive_rates_idx = np.where(rates >= 0)[0]
+    negative_rates_idx = np.where(rates < 0)[0]
+    k_positive = rates[positive_rates_idx] + 1j * frequencies[positive_rates_idx]
+    k_negative = rates[negative_rates_idx] + 1j * frequencies[negative_rates_idx]
+
+    dk_positive = k_positive * d
+    dk_negative = k_negative * d
+    # the new way
+    a = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    a[:, positive_rates_idx] = np.exp(
+        (-1 * shifted_axis[:, None] + 0.5 * dk_positive) * k_positive
+    )
+
+    a[np.ix_(left_shifted_axis_indices, negative_rates_idx)] = np.exp(
+        (-1 * left_shifted_axis[:, None] + 0.5 * dk_negative) * k_negative
+    )
+
+    sqwidth = np.sqrt(2) * width
+
+    b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    b[:, positive_rates_idx] = 1 + erf((shifted_axis[:, None] - dk_positive) / sqwidth)
+    b[np.ix_(left_shifted_axis_indices, negative_rates_idx)] = 1 + erf(
+        (left_shifted_axis[:, None] - dk_negative) / -sqwidth
+    )
+
+    osc = a * b * scale
     return np.concatenate((osc.real, osc.imag), axis=1)
