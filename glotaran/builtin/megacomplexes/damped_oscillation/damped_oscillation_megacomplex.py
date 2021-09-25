@@ -312,29 +312,25 @@ def calculate_damped_oscillation_matrix_gaussian_irf3(
     left_shifted_axis_indices = np.where(shifted_axis < 2 * width)[0]
     left_shifted_axis = shifted_axis[left_shifted_axis_indices]
     d = width ** 2
-    positive_rates_idx = np.where(rates >= 0)[0]
-    negative_rates_idx = np.where(rates < 0)[0]
-    k_positive = rates[positive_rates_idx] + 1j * frequencies[positive_rates_idx]
-    k_negative = rates[negative_rates_idx] + 1j * frequencies[negative_rates_idx]
+    pos_idx = np.where(rates >= 0)[0]
+    neg_idx = np.where(rates < 0)[0]
+    k = rates + 1j * frequencies
 
-    dk_positive = k_positive * d
-    dk_negative = k_negative * d
-    # the new way
+    dk = k * d
+
     a = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    a[:, positive_rates_idx] = np.exp(
-        (-1 * shifted_axis[:, None] + 0.5 * dk_positive) * k_positive
-    )
+    a[:, pos_idx] = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx])
 
-    a[np.ix_(left_shifted_axis_indices, negative_rates_idx)] = np.exp(
-        (-1 * left_shifted_axis[:, None] + 0.5 * dk_negative) * k_negative
+    a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
+        (-1 * left_shifted_axis[:, None] + 0.5 * dk[neg_idx]) * k[neg_idx]
     )
 
     sqwidth = np.sqrt(2) * width
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    b[:, positive_rates_idx] = 1 + erf((shifted_axis[:, None] - dk_positive) / sqwidth)
-    b[np.ix_(left_shifted_axis_indices, negative_rates_idx)] = 1 + erf(
-        (left_shifted_axis[:, None] - dk_negative) / -sqwidth
+    b[:, pos_idx] = 1 + erf((shifted_axis[:, None] - dk[pos_idx]) / sqwidth)
+    b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
+        (left_shifted_axis[:, None] - dk[neg_idx]) / -sqwidth
     )
 
     osc = a * b * scale
