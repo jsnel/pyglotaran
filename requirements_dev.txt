@@ -14,7 +14,7 @@ rich==11.1.0
 ruamel.yaml==0.17.20
 scipy==1.7.3
 sdtfile==2022.2.2
-tabulate==0.8.9
+tabulate==0.9.0
 xarray==0.21.1
 
 # documentation dependencies
