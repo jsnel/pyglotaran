@@ -56,9 +56,11 @@ main.add_command(
     )(plugin_list_cmd)
 )
 main.add_command(
-    main.command(name="print", short_help="Prints a model as markdown.", help_priority=3)(
-        print_cmd
-    )
+    main.command(
+        name="print",
+        short_help="Prints a scheme, model (-m) or parameter (-p) file as markdown.",
+        help_priority=3,
+    )(print_cmd)
 )
 main.add_command(
     main.command(name="validate", short_help="Validates a model file.", help_priority=2)(
@@ -66,7 +68,11 @@ main.add_command(
     )
 )
 main.add_command(
-    main.command(name="optimize", short_help="Optimizes a model.", help_priority=1)(optimize_cmd)
+    main.command(
+        name="optimize",
+        short_help="Run an optimization as specified by a scheme.",
+        help_priority=1,
+    )(optimize_cmd)
 )
 
 
