@@ -630,20 +630,21 @@ class MatrixProviderLinked(MatrixProvider):
         """Calculate the aligned matrices of the dataset group."""
         for i, global_index_value in enumerate(self._data_provider.aligned_global_axis):
             group_label = self._data_provider.get_aligned_group_label(i)
+            matrix_containers = [
+                self.get_matrix_container(label, index)
+                for label, index in zip(
+                    self._data_provider.group_definitions[group_label],
+                    self._data_provider.get_aligned_dataset_indices(i),
+                )
+            ]
+            matrix_scales = [
+                self.group.dataset_models[label].scale
+                if self.group.dataset_models[label].scale is not None
+                else 1.0
+                for label in self._data_provider.group_definitions[group_label]
+            ]
             group_matrix = self.align_matrices(
-                [
-                    self.get_matrix_container(label, index)
-                    for label, index in zip(
-                        self._data_provider.group_definitions[group_label],
-                        self._data_provider.get_aligned_dataset_indices(i),
-                    )
-                ],
-                [
-                    self.group.dataset_models[label].scale  # type:ignore[misc]
-                    if self.group.dataset_models[label].scale is not None
-                    else 1
-                    for label in self._data_provider.group_definitions[group_label]
-                ],
+                matrix_containers, matrix_scales  # type:ignore[arg-type]
             )
 
             self._aligned_full_clp_labels[i] = group_matrix.clp_labels
