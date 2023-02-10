@@ -6,20 +6,17 @@ from glotaran.builtin.items.activation import Activation
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
-from glotaran.builtin.megacomplexes.coherent_artifact import CoherentArtifactMegacomplex
+from glotaran.builtin.models.coherent_artifact import CoherentArtifactModel
 from glotaran.model import ExperimentModel
-from glotaran.model import Library
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
 
-test_library = Library.from_dict(
-    {
-        "megacomplex": {
-            "coherent-artifact": {"type": "coherent-artifact", "order": 3},
-        },
-    }
-)
+test_library = {
+    "coherent-artifact": CoherentArtifactModel(
+        label="coherent-artifact", type="coherent-artifact", order=3
+    ),
+}
 
 
 test_parameters_simulation = Parameters.from_dict({"gaussian": [["center", 50], ["width", 20]]})
@@ -48,11 +45,6 @@ test_clp = xr.DataArray(
 ).T
 
 
-def test_library_items():
-    assert "coherent-artifact" in test_library.megacomplex
-    assert isinstance(test_library.megacomplex["coherent-artifact"], CoherentArtifactMegacomplex)
-
-
 @pytest.mark.parametrize(
     "activation",
     (
@@ -78,8 +70,7 @@ def test_library_items():
     ),
 )
 def test_coherent_artifact(activation: Activation):
-    data_model = ActivationDataModel(megacomplex=["coherent-artifact"], activation=[activation])
-    assert len(test_library.validate_item(data_model)) == 0
+    data_model = ActivationDataModel(models=["coherent-artifact"], activation=[activation])
     data_model.data = simulate(
         data_model, test_library, test_parameters_simulation, test_axies, clp=test_clp
     )

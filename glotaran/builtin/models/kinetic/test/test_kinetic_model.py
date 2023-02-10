@@ -7,44 +7,46 @@ from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import InstantActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
-from glotaran.builtin.megacomplexes.kinetic import KineticMegacomplex
+from glotaran.builtin.models.kinetic import KineticModel
 from glotaran.model import ExperimentModel
-from glotaran.model import Library
 from glotaran.model import ZeroConstraint
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
 
-test_library = Library.from_dict(
-    {
-        "megacomplex": {
-            "parallel": {"type": "kinetic", "kinetic": ["parallel"]},
-            "sequential": {"type": "kinetic", "kinetic": ["sequential"]},
-            "equilibrium": {"type": "kinetic", "kinetic": ["equilibrium"]},
-        },
-        "kinetic": {
-            "parallel": {
-                "rates": {
-                    ("s1", "s1"): "rates.1",
-                    ("s2", "s2"): "rates.2",
-                }
+test_library = {
+    "parallel": KineticModel(
+        **{
+            "label": "parallel",
+            "type": "kinetic",
+            "rates": {
+                ("s1", "s1"): "rates.1",
+                ("s2", "s2"): "rates.2",
             },
-            "sequential": {
-                "rates": {
-                    ("s2", "s1"): "rates.1",
-                    ("s2", "s2"): "rates.2",
-                }
+        }
+    ),
+    "sequential": KineticModel(
+        **{
+            "label": "sequential",
+            "type": "kinetic",
+            "rates": {
+                ("s2", "s1"): "rates.1",
+                ("s2", "s2"): "rates.2",
             },
-            "equilibrium": {
-                "rates": {
-                    ("s2", "s1"): "rates.1",
-                    ("s2", "s2"): "rates.2",
-                    ("s1", "s2"): "rates.3",
-                }
+        }
+    ),
+    "equilibrium": KineticModel(
+        **{
+            "label": "equilibrium",
+            "type": "kinetic",
+            "rates": {
+                ("s2", "s1"): "rates.1",
+                ("s2", "s2"): "rates.2",
+                ("s1", "s2"): "rates.3",
             },
-        },
-    }
-)
+        }
+    ),
+}
 
 
 test_parameters_simulation = Parameters.from_dict(
@@ -64,14 +66,6 @@ test_clp = xr.DataArray(
     ],
     coords=[("clp_label", ["s1", "s2"]), ("spectral", test_global_axis.data)],
 ).T
-
-
-def test_library_items():
-    assert "parallel" in test_library.megacomplex
-    assert isinstance(test_library.megacomplex["parallel"], KineticMegacomplex)
-    assert "sequential" in test_library.megacomplex
-    assert isinstance(test_library.megacomplex["sequential"], KineticMegacomplex)
-    assert hasattr(test_library, "kinetic")
 
 
 @pytest.mark.parametrize("decay", ("parallel", "sequential", "equilibrium"))
@@ -105,8 +99,7 @@ def test_decay(decay: str, activation: Activation):
         activation.compartments = {"s1": 1, "s2": 1}
     else:
         activation.compartments = {"s1": 1}
-    data_model = ActivationDataModel(megacomplex=[decay], activation=[activation])
-    assert len(test_library.validate_item(data_model)) == 0
+    data_model = ActivationDataModel(models=[decay], activation=[activation])
     data_model.data = simulate(
         data_model, test_library, test_parameters_simulation, test_axies, clp=test_clp
     )

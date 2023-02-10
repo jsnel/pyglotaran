@@ -9,11 +9,11 @@ import xarray as xr
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import MultiGaussianActivation
 from glotaran.model import GlotaranModelError
-from glotaran.model import Megacomplex
+from glotaran.model import Model
 from glotaran.model import ParameterType
 
 
-class CoherentArtifactMegacomplex(Megacomplex):
+class CoherentArtifactModel(Model):
     type: Literal["coherent-artifact"]
     register_as = "coherent-artifact"
     dimension = "time"

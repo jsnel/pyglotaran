@@ -7,28 +7,24 @@ from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import InstantActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
-from glotaran.builtin.megacomplexes.damped_oscillation import DampedOscillationMegacomplex
+from glotaran.builtin.models.damped_oscillation import DampedOscillationModel
 from glotaran.model import ExperimentModel
-from glotaran.model import Library
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
 
-test_library = Library.from_dict(
-    {
-        "megacomplex": {
-            "damped-oscillation": {
-                "type": "damped-oscillation",
-                "oscillations": {
-                    "osc": {
-                        "frequency": "damped_oscillation.frequency",
-                        "rate": "damped_oscillation.rate",
-                    },
-                },
+test_library = {
+    "damped-oscillation": DampedOscillationModel(
+        label="damped-oscillation",
+        type="damped-oscillation",
+        oscillations={
+            "osc": {
+                "frequency": "damped_oscillation.frequency",
+                "rate": "damped_oscillation.rate",
             },
         },
-    }
-)
+    ),
+}
 
 
 test_parameters_simulation = Parameters.from_dict(
@@ -65,11 +61,6 @@ test_clp = xr.DataArray(
 ).T
 
 
-def test_library_items():
-    assert "damped-oscillation" in test_library.megacomplex
-    assert isinstance(test_library.megacomplex["damped-oscillation"], DampedOscillationMegacomplex)
-
-
 @pytest.mark.parametrize(
     "activation",
     (
@@ -99,8 +90,7 @@ def test_library_items():
     ),
 )
 def test_coherent_artifact(activation: Activation):
-    data_model = ActivationDataModel(megacomplex=["damped-oscillation"], activation=[activation])
-    assert len(test_library.validate_item(data_model)) == 0
+    data_model = ActivationDataModel(models=["damped-oscillation"], activation=[activation])
     data_model.data = simulate(
         data_model, test_library, test_parameters_simulation, test_axies, clp=test_clp
     )

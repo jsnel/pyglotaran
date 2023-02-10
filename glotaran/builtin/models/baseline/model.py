@@ -6,10 +6,10 @@ import numpy as np
 import xarray as xr
 
 from glotaran.model import DataModel
-from glotaran.model import Megacomplex
+from glotaran.model import Model
 
 
-class BaselineMegacomplex(Megacomplex):
+class BaselineModel(Model):
     type: Literal["baseline"]
     register_as = "baseline"
     unique = True

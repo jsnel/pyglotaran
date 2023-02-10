@@ -5,10 +5,10 @@ from typing import Literal
 import numpy as np
 
 from glotaran.model import DataModel
-from glotaran.model import Megacomplex
+from glotaran.model import Model
 
 
-class ClpGuideMegacomplex(Megacomplex):
+class ClpGuideModel(Model):
     type: Literal["clp-guide"]
     register_as = "clp-guide"
     target: str

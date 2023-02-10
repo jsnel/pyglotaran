@@ -2,64 +2,71 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from glotaran.builtin.megacomplexes.spectral import SpectralDataModel
-from glotaran.builtin.megacomplexes.spectral import SpectralMegacomplex
+from glotaran.builtin.models.spectral import SpectralDataModel
+from glotaran.builtin.models.spectral import SpectralModel
 from glotaran.model import ExperimentModel
-from glotaran.model import Library
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
 
-test_library = Library.from_dict(
-    {
-        "megacomplex": {
-            "gaussian": {
-                "type": "spectral",
-                "shapes": {
-                    "s1": {
-                        "type": "gaussian",
-                        "amplitude": "shape.amplitude",
-                        "location": "shape.location",
-                        "width": "shape.width",
-                    }
-                },
+test_library = {
+    "gaussian": SpectralModel(
+        **{
+            "label": "gaussian",
+            "type": "spectral",
+            "shapes": {
+                "s1": {
+                    "type": "gaussian",
+                    "amplitude": "shape.amplitude",
+                    "location": "shape.location",
+                    "width": "shape.width",
+                }
             },
-            "skewed_gaussian_neg": {
-                "type": "spectral",
-                "shapes": {
-                    "s1": {
-                        "type": "skewed-gaussian",
-                        "location": "shape.location",
-                        "width": "shape.width",
-                        "skewness": -1,
-                    }
-                },
+        }
+    ),
+    "skewed_gaussian_neg": SpectralModel(
+        **{
+            "label": "skewed_gaussian_neg",
+            "type": "spectral",
+            "shapes": {
+                "s1": {
+                    "type": "skewed-gaussian",
+                    "location": "shape.location",
+                    "width": "shape.width",
+                    "skewness": -1,
+                }
             },
-            "skewed_gaussian_pos": {
-                "type": "spectral",
-                "shapes": {
-                    "s1": {
-                        "type": "skewed-gaussian",
-                        "location": "shape.location",
-                        "width": "shape.width",
-                        "skewness": 1,
-                    }
-                },
+        }
+    ),
+    "skewed_gaussian_pos": SpectralModel(
+        **{
+            "label": "skewed_gaussian_pos",
+            "type": "spectral",
+            "shapes": {
+                "s1": {
+                    "type": "skewed-gaussian",
+                    "location": "shape.location",
+                    "width": "shape.width",
+                    "skewness": 1,
+                }
             },
-            "skewed_gaussian_zero": {
-                "type": "spectral",
-                "shapes": {
-                    "s1": {
-                        "type": "skewed-gaussian",
-                        "location": "shape.location",
-                        "width": "shape.width",
-                        "skewness": 0,
-                    }
-                },
+        }
+    ),
+    "skewed_gaussian_zero": SpectralModel(
+        **{
+            "label": "skewed_gaussian_zero",
+            "type": "spectral",
+            "shapes": {
+                "s1": {
+                    "type": "skewed-gaussian",
+                    "location": "shape.location",
+                    "width": "shape.width",
+                    "skewness": 0,
+                }
             },
-        },
-    }
-)
+        }
+    ),
+}
 
 
 test_parameters_simulation = Parameters.from_dict(
@@ -93,11 +100,6 @@ test_clp = xr.DataArray(
 ).T
 
 
-def test_library_items():
-    assert "gaussian" in test_library.megacomplex
-    assert isinstance(test_library.megacomplex["gaussian"], SpectralMegacomplex)
-
-
 @pytest.mark.parametrize(
     "shape",
     (
@@ -108,8 +110,7 @@ def test_library_items():
     ),
 )
 def test_spectral(shape: str):
-    data_model = SpectralDataModel(megacomplex=[shape])
-    assert len(test_library.validate_item(data_model)) == 0
+    data_model = SpectralDataModel(models=[shape])
     data_model.data = simulate(
         data_model, test_library, test_parameters_simulation, test_axies, clp=test_clp
     )

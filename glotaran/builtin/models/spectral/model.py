@@ -5,9 +5,9 @@ from typing import Literal
 import numpy as np
 import xarray as xr
 
-from glotaran.builtin.megacomplexes.spectral.shape import SpectralShape
+from glotaran.builtin.models.spectral.shape import SpectralShape
 from glotaran.model import DataModel
-from glotaran.model import Megacomplex
+from glotaran.model import Model
 
 
 class SpectralDataModel(DataModel):
@@ -15,7 +15,7 @@ class SpectralDataModel(DataModel):
     spectral_axis_scale: float = 1
 
 
-class SpectralMegacomplex(Megacomplex):
+class SpectralModel(Model):
     type: Literal["spectral"]
     dimension: str = "spectral"
     register_as = "spectral"
@@ -54,8 +54,8 @@ class SpectralMegacomplex(Megacomplex):
         if "spectrum" in data.coords:
             return
 
-        megacomplexes = [m for m in model.megacomplex if isinstance(m, SpectralMegacomplex)]
-        shapes = [s for m in megacomplexes for s in m.shapes]
+        models = [m for m in model.models if isinstance(m, SpectralModel)]
+        shapes = [s for m in models for s in m.shapes]
 
         data.coords["spectrum"] = shapes
         matrix = data.global_matrix if as_global else data.matrix

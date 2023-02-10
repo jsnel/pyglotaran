@@ -7,17 +7,17 @@ import xarray as xr
 
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import MultiGaussianActivation
-from glotaran.builtin.megacomplexes.damped_oscillation.matrix import (
+from glotaran.builtin.models.damped_oscillation.matrix import (
     calculate_damped_oscillation_matrix_gaussian_activation,
 )
-from glotaran.builtin.megacomplexes.damped_oscillation.matrix import (
+from glotaran.builtin.models.damped_oscillation.matrix import (
     calculate_damped_oscillation_matrix_gaussian_activation_on_index,
 )
-from glotaran.builtin.megacomplexes.damped_oscillation.matrix import (
+from glotaran.builtin.models.damped_oscillation.matrix import (
     calculate_damped_oscillation_matrix_instant_activation,
 )
 from glotaran.model import Item
-from glotaran.model import Megacomplex
+from glotaran.model import Model
 from glotaran.model import ParameterType
 
 
@@ -26,7 +26,7 @@ class Oscillation(Item):
     rate: ParameterType
 
 
-class DampedOscillationMegacomplex(Megacomplex):
+class DampedOscillationModel(Model):
     type: Literal["damped-oscillation"]
     register_as = "damped-oscillation"
     dimension = "time"
@@ -128,12 +128,10 @@ class DampedOscillationMegacomplex(Megacomplex):
             # not implemented
             return
 
-        megacomplexes = [
-            m for m in model.megacomplex if isinstance(m, DampedOscillationMegacomplex)
-        ]
-        oscillations = [label for m in megacomplexes for label in m.oscillations]
-        frequencies = [o.frequency for m in megacomplexes for o in m.oscillations.values()]
-        rates = [o.rate for m in megacomplexes for o in m.oscillations.values()]
+        models = [m for m in model.models if isinstance(m, DampedOscillationModel)]
+        oscillations = [label for m in models for label in m.oscillations]
+        frequencies = [o.frequency for m in models for o in m.oscillations.values()]
+        rates = [o.rate for m in models for o in m.oscillations.values()]
 
         data.coords[f"{prefix}"] = oscillations
         data.coords[f"{prefix}_frequency"] = (prefix, frequencies)

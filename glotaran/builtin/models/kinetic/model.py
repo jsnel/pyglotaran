@@ -7,16 +7,14 @@ import xarray as xr
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import MultiGaussianActivation
 from glotaran.builtin.items.activation import add_activation_to_result_data
-from glotaran.builtin.megacomplexes.kinetic.kinetic import Kinetic
-from glotaran.builtin.megacomplexes.kinetic.matrix import calculate_matrix_gaussian_activation
-from glotaran.builtin.megacomplexes.kinetic.matrix import (
-    calculate_matrix_gaussian_activation_on_index,
-)
-from glotaran.model import Megacomplex
+from glotaran.builtin.models.kinetic.kinetic import Kinetic
+from glotaran.builtin.models.kinetic.matrix import calculate_matrix_gaussian_activation
+from glotaran.builtin.models.kinetic.matrix import calculate_matrix_gaussian_activation_on_index
+from glotaran.model import Model
 
 
-class KineticMegacomplex(Megacomplex, Kinetic):
-    type: Literal["kinetic"]
+class KineticModel(Model, Kinetic):
+    type: Literal["kinetic"] = "kinetic"
     register_as = "kinetic"
     data_model_type = ActivationDataModel
     dimension: str = "time"
@@ -31,9 +29,6 @@ class KineticMegacomplex(Megacomplex, Kinetic):
             else:
                 return lhs[np.newaxis, :, :] + rhs
         return lhs + rhs
-
-    def get_species(self) -> list[str]:
-        return self.compartments
 
     def calculate_matrix(
         self,
@@ -123,8 +118,8 @@ class KineticMegacomplex(Megacomplex, Kinetic):
         add_activation_to_result_data(model, data)
         if "species" in data.coords:
             return
-        kinetic = self.combine([m for m in model.megacomplex if isinstance(m, KineticMegacomplex)])
-        species = kinetic.compartments
+        kinetic = self.combine([m for m in model.models if isinstance(m, KineticModel)])
+        species = kinetic.species
         global_dimension = data.attrs["global_dimension"]
         model_dimension = data.attrs["model_dimension"]
 
