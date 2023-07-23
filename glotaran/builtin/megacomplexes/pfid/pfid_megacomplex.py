@@ -69,6 +69,7 @@ class PFIDMegacomplex(Megacomplex):
     labels: list[str] = attribute(validator=validate_pfid_parameter)
     frequencies: list[ParameterType]  # omega_a
     rates: list[ParameterType]  # 1/T2
+    alpha: float
 
     def calculate_matrix(
         self,
@@ -81,6 +82,7 @@ class PFIDMegacomplex(Megacomplex):
 
         frequencies = np.array(self.frequencies)
         rates = np.array(self.rates)
+        alpha = self.alpha
 
         irf = dataset_model.irf
         matrix_shape = (
@@ -97,11 +99,11 @@ class PFIDMegacomplex(Megacomplex):
             if index_dependent(dataset_model):
                 for i in range(global_axis.size):
                     calculate_pfid_matrix_gaussian_irf_on_index(
-                        matrix[i], frequencies, rates, irf, i, global_axis, model_axis
+                        matrix[i], frequencies, rates, alpha, irf, i, global_axis, model_axis
                     )
             else:
                 calculate_pfid_matrix_gaussian_irf_on_index(
-                    matrix, frequencies, rates, irf, None, global_axis, model_axis
+                    matrix, frequencies, rates, alpha, irf, None, global_axis, model_axis
                 )
 
         return clp_label, matrix
@@ -155,6 +157,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
     matrix: ArrayLike,
     frequencies: ArrayLike,
     rates: ArrayLike,
+    alpha: float,
     irf: IrfMultiGaussian,
     global_index: int | None,
     global_axis: ArrayLike,
@@ -165,6 +168,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
         matrix += calculate_pfid_matrix_gaussian_irf(
             frequencies,
             rates,
+            alpha,
             model_axis,
             center,
             width,
@@ -178,6 +182,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
 def calculate_pfid_matrix_gaussian_irf(
     frequencies: np.ndarray,
     rates: np.ndarray,
+    alpha: float,
     model_axis: np.ndarray,
     center: float,
     width: float,
@@ -213,12 +218,16 @@ def calculate_pfid_matrix_gaussian_irf(
     shifted_axis = model_axis - center - shift
     # For calculations using the negative rates we use the time axis
     # from the beginning up to 5 σ from the irf center
-    left_shifted_axis_indices = np.where(shifted_axis < 5 * width)[0]
+    # left_shifted_axis_indices = np.where(shifted_axis < 5 * width)[0]
+    # modify this to enable positive time response according to Hamm 1995, eq.1.6
+    left_shifted_axis_indices = np.where(shifted_axis < 0)[0]
     left_shifted_axis = shifted_axis[left_shifted_axis_indices]
     neg_idx = np.where(rates < 0)[0]
     # For calculations using the positive rates axis we use the time axis
     # from 5 σ before the irf center until the end
-    right_shifted_axis_indices = np.where(shifted_axis > -5 * width)[0]
+    # right_shifted_axis_indices = np.where(shifted_axis > -5 * width)[0]
+    # modify this to enable positive time response according to Hamm 1995, eq.1.6
+    right_shifted_axis_indices = np.where(shifted_axis > 0)[0]
     right_shifted_axis = shifted_axis[right_shifted_axis_indices]
     pos_idx = np.where(rates >= 0)[0]
 
@@ -233,22 +242,35 @@ def calculate_pfid_matrix_gaussian_irf(
     sqwidth = np.sqrt(2) * width
 
     a = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    a[np.ix_(right_shifted_axis_indices, pos_idx)] = np.exp(
-        (-1 * right_shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx]
-    )
+    # a[np.ix_(right_shifted_axis_indices, pos_idx)] = np.exp(
+    #     (-1 * right_shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx]
+    # )
 
-    a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
-        (-1 * left_shifted_axis[:, None] + 0.5 * dk[neg_idx]) * k[neg_idx]
+    # a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
+    a = np.exp(
+        (-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:]
     )
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    b[np.ix_(right_shifted_axis_indices, pos_idx)] = 1 + erf(
-        (right_shifted_axis[:, None] - dk[pos_idx]) / sqwidth
-    )
+    # b[np.ix_(right_shifted_axis_indices, pos_idx)] = 1 + erf(
+    #     (right_shifted_axis[:, None] - dk[pos_idx]) / sqwidth
+    # )
     # For negative rates we flip the sign of the `erf` by using `-sqwidth` in lieu of `sqwidth`
-    b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
-        (left_shifted_axis[:, None] - dk[neg_idx]) / -sqwidth
+    # b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
+    # b[np.ix_(True, neg_idx)] = 1 + erf(
+    # b[np.ix_(neg_idx)] = 1 + erf(
+    b = 1 + erf(
+        (shifted_axis[:, None] - dk[:]) / -sqwidth
     )
-
-    osc = a * b * scale
-    return (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
+    c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    c = 1 - erf(
+        (shifted_axis[:, None]) / -sqwidth
+    )
+# added a minus to facilitate the NNLS fit of the instantaneous bleach
+    osc = -(a * b + c) * scale
+    # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
+    # output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
+    output = (osc.real * alpha*rates - frequency_diff * osc.imag) / ((alpha*rates)**2 + frequency_diff**2)
+# here we must put a constant in the numerator for positive time
+    # output[np.ix_(right_shifted_axis_indices, neg_idx)] = -scale/(rates**2 + frequency_diff**2)
+    return output
