@@ -69,7 +69,7 @@ class PFIDMegacomplex(Megacomplex):
     labels: list[str] = attribute(validator=validate_pfid_parameter)
     frequencies: list[ParameterType]  # omega_a
     rates: list[ParameterType]  # 1/T2
-    alpha: float
+    alpha: list[ParameterType]
 
     def calculate_matrix(
         self,
@@ -82,7 +82,7 @@ class PFIDMegacomplex(Megacomplex):
 
         frequencies = np.array(self.frequencies)
         rates = np.array(self.rates)
-        alpha = self.alpha
+        alpha = np.array(self.alpha)
 
         irf = dataset_model.irf
         matrix_shape = (
@@ -157,7 +157,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
     matrix: ArrayLike,
     frequencies: ArrayLike,
     rates: ArrayLike,
-    alpha: float,
+    alpha: ArrayLike,
     irf: IrfMultiGaussian,
     global_index: int | None,
     global_axis: ArrayLike,
@@ -182,7 +182,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
 def calculate_pfid_matrix_gaussian_irf(
     frequencies: np.ndarray,
     rates: np.ndarray,
-    alpha: float,
+    alpha: np.ndarray,
     model_axis: np.ndarray,
     center: float,
     width: float,
@@ -247,9 +247,7 @@ def calculate_pfid_matrix_gaussian_irf(
     # )
 
     # a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
-    a = np.exp(
-        (-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:]
-    )
+    a = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     # b[np.ix_(right_shifted_axis_indices, pos_idx)] = 1 + erf(
@@ -259,18 +257,16 @@ def calculate_pfid_matrix_gaussian_irf(
     # b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
     # b[np.ix_(True, neg_idx)] = 1 + erf(
     # b[np.ix_(neg_idx)] = 1 + erf(
-    b = 1 + erf(
-        (shifted_axis[:, None] - dk[:]) / -sqwidth
-    )
+    b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
     c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    c = 1 - erf(
-        (shifted_axis[:, None]) / -sqwidth
-    )
-# added a minus to facilitate the NNLS fit of the instantaneous bleach
+    c = 1 - erf((shifted_axis[:, None]) / -sqwidth)
+    # added a minus to facilitate the NNLS fit of the instantaneous bleach
     osc = -(a * b + c) * scale
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     # output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
-    output = (osc.real * alpha*rates - frequency_diff * osc.imag) / ((alpha*rates)**2 + frequency_diff**2)
-# here we must put a constant in the numerator for positive time
+    output = (osc.real * alpha[0] * rates - frequency_diff * osc.imag) / (
+        (alpha[0] * rates) ** 2 + frequency_diff**2
+    )
+    # here we must put a constant in the numerator for positive time
     # output[np.ix_(right_shifted_axis_indices, neg_idx)] = -scale/(rates**2 + frequency_diff**2)
     return output
