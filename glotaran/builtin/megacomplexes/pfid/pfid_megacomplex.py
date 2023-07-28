@@ -235,7 +235,8 @@ def calculate_pfid_matrix_gaussian_irf(
     # where 0.03 is the product of speed of light 3*10**10 cm/s and time-unit ps (10^-12)
     # we postpone the conversion because the global axis is
     # always expected to be in cm-1 for relevant experiments
-    frequency_diff = (global_axis_value - frequencies) * 0.03 * 2 * np.pi
+    # frequency_diff = (global_axis_value - frequencies) * 0.03 * 2 * np.pi
+    frequency_diff = alpha[0] * (global_axis_value - frequencies) * 0.03 * 2 * np.pi
     d = width**2
     k = rates + 1j * frequency_diff
     dk = k * d
@@ -263,10 +264,10 @@ def calculate_pfid_matrix_gaussian_irf(
     # added a minus to facilitate the NNLS fit of the instantaneous bleach
     osc = -(a * b + c) * scale
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
-    # output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
-    output = (osc.real * alpha[0] * rates - frequency_diff * osc.imag) / (
-        (alpha[0] * rates) ** 2 + frequency_diff**2
-    )
+    output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
+    # output = (osc.real * alpha[0] * rates - frequency_diff * osc.imag) / (
+    #     (alpha[0] * rates) ** 2 + frequency_diff**2
+    # )
     # here we must put a constant in the numerator for positive time
     # output[np.ix_(right_shifted_axis_indices, neg_idx)] = -scale/(rates**2 + frequency_diff**2)
     return output
