@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from pydantic import Extra
 
 from glotaran.io import load_dataset
-from glotaran.model import Element
 from glotaran.model import ExperimentModel
 from glotaran.model.errors import GlotaranUserError
 from glotaran.optimization import Optimization
