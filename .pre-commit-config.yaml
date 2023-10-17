@@ -155,4 +155,6 @@ repos:
       - id: codespell
         types: [file]
         types_or: [python, pyi, markdown, rst, jupyter]
+        args:
+          - --ignore-words-list=glotaran,doas,projectio
         additional_dependencies: [tomli]
