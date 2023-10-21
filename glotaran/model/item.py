@@ -1,4 +1,4 @@
-"""This module contains the items."""
+"""This module contains the item classes and helper functions."""
 
 from __future__ import annotations
 
@@ -12,11 +12,8 @@ from types import NoneType
 from types import UnionType
 from typing import Annotated
 from typing import Any
-from typing import Callable
 from typing import ClassVar
-from typing import Generator
 from typing import Literal
-from typing import Type
 from typing import TypeAlias
 from typing import TypeVar
 from typing import Union
@@ -33,6 +30,10 @@ from glotaran.model.errors import ItemIssue
 from glotaran.model.errors import ParameterIssue
 from glotaran.parameter import Parameter
 from glotaran.parameter import Parameters
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Generator
 
 ItemT = TypeVar("ItemT", bound="Item")
 
@@ -106,7 +107,7 @@ class ItemAttribute(FieldInfo):
         self.metadata.append(glotaran_field_metadata)
 
 
-def Attribute(
+def Attribute(  # noqa: N802
     *,
     description: str,
     default: Any = PydanticUndefined,
@@ -145,7 +146,7 @@ class TypedItem(Item):
     """An item with a type."""
 
     type: Literal[None]
-    __item_types__: ClassVar[list[Type[Item]]]
+    __item_types__: ClassVar[list[type[Item]]]  # type:ignore[valid-type]
 
     def __init_subclass__(cls):
         """Create an item from a class."""
