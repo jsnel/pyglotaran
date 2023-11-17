@@ -269,7 +269,17 @@ def calculate_pfid_matrix_gaussian_irf(
     b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
     b2 = 1 + erf((shifted_axis[:, None] - dk2[:]) / -sqwidth)
     c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    c = 1 - erf((shifted_axis[:, None]) / -sqwidth)
+    # this c term describes a nondecaying excited state following Hamm 1995
+    # c = 1 - erf((shifted_axis[:, None]) / -sqwidth)
+    # this c term describes an excited state decaying with rate kd(ecay)
+    # temporarily kd 15, to be parameterized
+    kd=rates+15.
+    dkd = kd * d
+    c1 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    c2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    c1 = np.exp((1 * shifted_axis[:, None] + 0.5 * dkd[:]) * kd[:])
+    c2 = 1 - erf((shifted_axis[:, None]+dkd[:]) / sqwidth)
+    c = c1 * c2
     # added a minus to facilitate the NNLS fit of the instantaneous bleach
     osc = -(a * b + c) * scale
     osc2 = -(a2 * b2 + c) * scale
