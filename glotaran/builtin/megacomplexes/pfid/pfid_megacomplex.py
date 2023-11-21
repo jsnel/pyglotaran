@@ -273,7 +273,7 @@ def calculate_pfid_matrix_gaussian_irf(
     # c = 1 - erf((shifted_axis[:, None]) / -sqwidth)
     # this c term describes an excited state decaying with rate kd(ecay)
     # temporarily kd 15, to be parameterized
-    kd=rates+15.
+    kd=np.zeros((len(rates)), dtype=np.complex128)+15.
     dkd = kd * d
     c1 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     c2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
@@ -286,6 +286,8 @@ def calculate_pfid_matrix_gaussian_irf(
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
     output = output+(osc2.real * rates - frequency_diff2 * osc2.imag) / (rates**2 + frequency_diff2**2)
+    # minus to mimic two bands alpha apart with opposite sign or derivative when alpha is small
+    # output = output-(osc2.real * rates - frequency_diff2 * osc2.imag) / (rates**2 + frequency_diff2**2)
     # output = (osc.real * alpha[0] * rates - frequency_diff * osc.imag) / (
     #     (alpha[0] * rates) ** 2 + frequency_diff**2
     # )
