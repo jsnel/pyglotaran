@@ -14,8 +14,10 @@ from glotaran.model import Megacomplex
 from glotaran.model import Model
 from glotaran.model import ParameterType
 from glotaran.model import attribute
+from glotaran.model import item
 from glotaran.model import megacomplex
 from glotaran.parameter import Parameters
+from glotaran.builtin.megacomplexes.decay.decay_matrix_gaussian_irf import calculate_decay_matrix_gaussian_irf_on_index
 
 if TYPE_CHECKING:
     from glotaran.typing.types import ArrayLike
@@ -60,9 +62,12 @@ def validate_pfid_parameter(
         )
 
     return issues
+@item
+class PFIDDatasetModel(DatasetModel):
+    spectral_axis_inverted: bool = False
+    spectral_axis_scale: float = 1
 
-
-@megacomplex(dataset_model_type=DecayDatasetModel)
+@megacomplex(dataset_model_type=PFIDDatasetModel)
 class PFIDMegacomplex(Megacomplex):
     dimension: str = "time"
     type: str = "pfid"
@@ -70,6 +75,7 @@ class PFIDMegacomplex(Megacomplex):
     frequencies: list[ParameterType]  # omega_a
     rates: list[ParameterType]  # 1/T2
     alpha: list[ParameterType]
+
 
     def calculate_matrix(
         self,
@@ -83,6 +89,11 @@ class PFIDMegacomplex(Megacomplex):
         frequencies = np.array(self.frequencies)
         rates = np.array(self.rates)
         alpha = np.array(self.alpha)
+
+        if dataset_model.spectral_axis_inverted:
+            frequencies = dataset_model.spectral_axis_scale / frequencies
+        elif dataset_model.spectral_axis_scale != 1:
+            frequencies = frequencies * dataset_model.spectral_axis_scale
 
         irf = dataset_model.irf
         matrix_shape = (
@@ -268,18 +279,30 @@ def calculate_pfid_matrix_gaussian_irf(
     # b[np.ix_(neg_idx)] = 1 + erf(
     b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
     b2 = 1 + erf((shifted_axis[:, None] - dk2[:]) / -sqwidth)
-    c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    # c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    c = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     # this c term describes a nondecaying excited state following Hamm 1995
     # c = 1 - erf((shifted_axis[:, None]) / -sqwidth)
     # this c term describes an excited state decaying with rate kd(ecay)
     # temporarily kd 15, to be parameterized
-    kd=np.zeros((len(rates)), dtype=np.complex128)+15.
-    dkd = kd * d
-    c1 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    c2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    c1 = np.exp((1 * shifted_axis[:, None] + 0.5 * dkd[:]) * kd[:])
-    c2 = 1 - erf((shifted_axis[:, None]+dkd[:]) / sqwidth)
-    c = c1 * c2
+    # kd=np.zeros((len(rates)), dtype=np.complex128)+15.
+    kd=np.zeros((len(rates)), dtype=np.float64)+15.
+    # TODO we need to call calculate_decay_matrix_gaussian_irf_on_index to avoid overflows
+    calculate_decay_matrix_gaussian_irf_on_index(matrix=c,
+    rates=kd,
+    times=model_axis,
+    centers=np.array([center]),
+    widths=np.array([width]),
+    scales=np.array([1.]),
+    backsweep=False,
+    backsweep_period=1.
+    )
+    # dkd = kd * d
+    # c1 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    # c2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    # c1 = np.exp((1 * shifted_axis[:, None] + 0.5 * dkd[:]) * kd[:])
+    # c2 = 1 - erf((shifted_axis[:, None]+dkd[:]) / sqwidth)
+    # c = c1 * c2
     # added a minus to facilitate the NNLS fit of the instantaneous bleach
     osc = -(a * b + c) * scale
     osc2 = -(a2 * b2 + c) * scale
