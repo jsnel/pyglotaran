@@ -229,9 +229,10 @@ def calculate_pfid_matrix_gaussian_irf(
     shifted_axis = model_axis - center - shift
     # For calculations using the negative rates we use the time axis
     # from the beginning up to 5 σ from the irf center
-    # left_shifted_axis_indices = np.where(shifted_axis < 5 * width)[0]
+    # try 20231223
+    left_shifted_axis_indices = np.where(shifted_axis < 5 * width)[0]
     # modify this to enable positive time response according to Hamm 1995, eq.1.6
-    left_shifted_axis_indices = np.where(shifted_axis < 0)[0]
+    # left_shifted_axis_indices = np.where(shifted_axis < 0)[0]
     left_shifted_axis = shifted_axis[left_shifted_axis_indices]
     neg_idx = np.where(rates < 0)[0]
     # For calculations using the positive rates axis we use the time axis
@@ -265,8 +266,11 @@ def calculate_pfid_matrix_gaussian_irf(
     # )
 
     # a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp(
-    a = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
-    a2 = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
+    # try 20231223
+    # a = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
+    # a2 = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
+    a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp((-1 * left_shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
+    a2[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp((-1 * left_shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     b2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
