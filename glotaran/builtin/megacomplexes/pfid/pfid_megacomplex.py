@@ -75,6 +75,7 @@ class PFIDMegacomplex(Megacomplex):
     frequencies: list[ParameterType]  # omega_a
     rates: list[ParameterType]  # 1/T2
     alpha: list[ParameterType]
+    kappa: list[ParameterType]
 
 
     def calculate_matrix(
@@ -89,6 +90,7 @@ class PFIDMegacomplex(Megacomplex):
         frequencies = np.array(self.frequencies)
         rates = np.array(self.rates)
         alpha = np.array(self.alpha)
+        kappa = np.array(self.kappa)
 
         if dataset_model.spectral_axis_inverted:
             frequencies = dataset_model.spectral_axis_scale / frequencies
@@ -110,11 +112,11 @@ class PFIDMegacomplex(Megacomplex):
             if index_dependent(dataset_model):
                 for i in range(global_axis.size):
                     calculate_pfid_matrix_gaussian_irf_on_index(
-                        matrix[i], frequencies, rates, alpha, irf, i, global_axis, model_axis
+                        matrix[i], frequencies, rates, alpha, kappa, irf, i, global_axis, model_axis
                     )
             else:
                 calculate_pfid_matrix_gaussian_irf_on_index(
-                    matrix, frequencies, rates, alpha, irf, None, global_axis, model_axis
+                    matrix, frequencies, rates, alpha, kappa, irf, None, global_axis, model_axis
                 )
 
         return clp_label, matrix
@@ -169,6 +171,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
     frequencies: ArrayLike,
     rates: ArrayLike,
     alpha: ArrayLike,
+    kappa: ArrayLike,
     irf: IrfMultiGaussian,
     global_index: int | None,
     global_axis: ArrayLike,
@@ -180,6 +183,7 @@ def calculate_pfid_matrix_gaussian_irf_on_index(
             frequencies,
             rates,
             alpha,
+            kappa,
             model_axis,
             center,
             width,
@@ -194,6 +198,7 @@ def calculate_pfid_matrix_gaussian_irf(
     frequencies: np.ndarray,
     rates: np.ndarray,
     alpha: np.ndarray,
+    kappa: np.ndarray,
     model_axis: np.ndarray,
     center: float,
     width: float,
@@ -208,7 +213,11 @@ def calculate_pfid_matrix_gaussian_irf(
     frequencies : np.ndarray
         an array of frequencies in THz, one per oscillation
     rates : np.ndarray
-        an array of rates, one per oscillation
+        an array of dephasing rates (negative), one per oscillation
+    alpha: np.ndarray
+        attempt: alpha[0] is a shift of the frequencies to mimic inhomogeneous broadening
+    kappa : np.ndarray
+        an array of decay rates (positive), only the first is used
     model_axis : np.ndarray
         the model axis (time)
     center : float
@@ -290,7 +299,7 @@ def calculate_pfid_matrix_gaussian_irf(
     # this c term describes an excited state decaying with rate kd(ecay)
     # temporarily kd 15, to be parameterized
     # kd=np.zeros((len(rates)), dtype=np.complex128)+15.
-    kd=np.zeros((len(rates)), dtype=np.float64)+15.
+    kd=np.zeros((len(rates)), dtype=np.float64)+kappa[0]
     # TODO we need to call calculate_decay_matrix_gaussian_irf_on_index to avoid overflows
     calculate_decay_matrix_gaussian_irf_on_index(matrix=c,
     rates=kd,
