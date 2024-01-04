@@ -259,17 +259,19 @@ def calculate_pfid_matrix_gaussian_irf(
     frequency_diff = (global_axis_value - frequencies) * 0.03 * 2 * np.pi
     # 20230925
     # attempt: alpha[0] is a shift of the frequencies to mimic inhomogeneous broadening
-    frequency_diff2 = (global_axis_value - frequencies-alpha[0]) * 0.03 * 2 * np.pi
+    # frequency_diff2 = (global_axis_value - frequencies-alpha[0]) * 0.03 * 2 * np.pi
     # frequency_diff = alpha[0] * (global_axis_value - frequencies) * 0.03 * 2 * np.pi
     d = width**2
     k = rates + 1j * frequency_diff
     dk = k * d
-    k2 = rates + 1j * frequency_diff2
-    dk2 = k2 * d
+    # k2 = rates + 1j * frequency_diff2
+    # 20240103 attempt alpha[0] is a common decay rate
+    # k2 = alpha[0] + 1j * frequency_diff
+    # dk2 = k2 * d
     sqwidth = np.sqrt(2) * width
 
     a = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    a2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    # a2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     # a[np.ix_(right_shifted_axis_indices, pos_idx)] = np.exp(
     #     (-1 * right_shifted_axis[:, None] + 0.5 * dk[pos_idx]) * k[pos_idx]
     # )
@@ -279,10 +281,10 @@ def calculate_pfid_matrix_gaussian_irf(
     # a = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
     # a2 = np.exp((-1 * shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
     a[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp((-1 * left_shifted_axis[:, None] + 0.5 * dk[:]) * k[:])
-    a2[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp((-1 * left_shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
+    # a2[np.ix_(left_shifted_axis_indices, neg_idx)] = np.exp((-1 * left_shifted_axis[:, None] + 0.5 * dk2[:]) * k2[:])
 
     b = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
-    b2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
+    # b2 = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     # b[np.ix_(right_shifted_axis_indices, pos_idx)] = 1 + erf(
     #     (right_shifted_axis[:, None] - dk[pos_idx]) / sqwidth
     # )
@@ -291,7 +293,7 @@ def calculate_pfid_matrix_gaussian_irf(
     # b[np.ix_(True, neg_idx)] = 1 + erf(
     # b[np.ix_(neg_idx)] = 1 + erf(
     b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
-    b2 = 1 + erf((shifted_axis[:, None] - dk2[:]) / -sqwidth)
+    # b2 = 1 + erf((shifted_axis[:, None] - dk2[:]) / -sqwidth)
     # c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     c = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     # this c term describes a nondecaying excited state following Hamm 1995
@@ -318,10 +320,11 @@ def calculate_pfid_matrix_gaussian_irf(
     # c = c1 * c2
     # added a minus to facilitate the NNLS fit of the instantaneous bleach
     osc = -(a * b + c) * scale
-    osc2 = -(a2 * b2 + c) * scale
+    # osc2 = -(a2 * b2 + c) * scale
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
-    output = output+(osc2.real * rates - frequency_diff2 * osc2.imag) / (rates**2 + frequency_diff2**2)
+    # output = output+(osc2.real * alpha[0] - frequency_diff * osc2.imag) / (alpha[0]**2 + frequency_diff**2)
+    # output = output+(osc2.real * rates - frequency_diff2 * osc2.imag) / (rates**2 + frequency_diff2**2)
     # minus to mimic two bands alpha apart with opposite sign or derivative when alpha is small
     # output = output-(osc2.real * rates - frequency_diff2 * osc2.imag) / (rates**2 + frequency_diff2**2)
     # output = (osc.real * alpha[0] * rates - frequency_diff * osc.imag) / (
