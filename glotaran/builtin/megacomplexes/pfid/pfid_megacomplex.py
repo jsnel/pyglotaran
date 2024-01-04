@@ -74,8 +74,8 @@ class PFIDMegacomplex(Megacomplex):
     labels: list[str] = attribute(validator=validate_pfid_parameter)
     frequencies: list[ParameterType]  # omega_a
     rates: list[ParameterType]  # 1/T2
-    alpha: list[ParameterType]
-    kappa: list[ParameterType]
+    alpha: list[ParameterType]  # currently unused
+    kappa: list[ParameterType]  # describes an excited state decaying with rate kd(ecay)
 
 
     def calculate_matrix(
@@ -270,10 +270,12 @@ def calculate_pfid_matrix_gaussian_irf(
     #     (right_shifted_axis[:, None] - dk[pos_idx]) / sqwidth
     # )
     # For negative rates we flip the sign of the `erf` by using `-sqwidth` in lieu of `sqwidth`
-    # b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf(
+    # after 20240104
+    b[np.ix_(left_shifted_axis_indices, neg_idx)] = 1 + erf((left_shifted_axis[:, None]- dk[:]) / -sqwidth)
     # b[np.ix_(True, neg_idx)] = 1 + erf(
     # b[np.ix_(neg_idx)] = 1 + erf(
-    b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
+    # until 20240103
+    # b = 1 + erf((shifted_axis[:, None] - dk[:]) / -sqwidth)
     # c = np.zeros((len(model_axis), len(rates)), dtype=np.complex128)
     c = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     # this c term describes a nondecaying excited state following Hamm 1995
