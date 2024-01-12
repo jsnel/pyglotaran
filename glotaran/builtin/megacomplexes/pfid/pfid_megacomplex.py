@@ -258,7 +258,9 @@ def calculate_pfid_matrix_gaussian_irf(
     # always expected to be in cm-1 for relevant experiments
     frequency_diff = (global_axis_value - frequencies) * 0.03 * 2 * np.pi
     d = width**2
+    # rates2 = rates*(alpha[0]/(alpha[0]+abs(frequency_diff)))
     k = rates + 1j * frequency_diff
+    # k = rates2 + 1j * frequency_diff
     dk = k * d
     sqwidth = np.sqrt(2) * width
 
@@ -296,4 +298,5 @@ def calculate_pfid_matrix_gaussian_irf(
     osc = -(a * b + c) * scale
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
     output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
+    # output = (osc.real * rates2 - frequency_diff * osc.imag) / (rates2**2 + frequency_diff**2)
     return output
