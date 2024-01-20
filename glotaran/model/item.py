@@ -139,7 +139,9 @@ def Attribute(  # noqa: N802
 class Item(BaseModel):
     """A baseclass for items."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True, extra="forbid", protected_namespaces=()
+    )
 
 
 class TypedItem(Item):
@@ -171,7 +173,9 @@ class TypedItem(Item):
 
 
 @cache
-def get_structure_and_type_from_field(info: FieldInfo) -> tuple[None | list | dict, type]:
+def get_structure_and_type_from_field(
+    info: FieldInfo,
+) -> tuple[None | list | dict, type]:
     """Get the structure and type from a field.
 
     Parameters
@@ -211,7 +215,9 @@ def strip_option_type_from_definition(definition: type, strip_type: type = NoneT
     return definition
 
 
-def strip_structure_type_from_definition(definition: type) -> tuple[None | list | dict, type]:
+def strip_structure_type_from_definition(
+    definition: type,
+) -> tuple[None | list | dict, type]:
     """Strip the structure from a definition.
 
     Parameters
@@ -270,7 +276,9 @@ def iterate_fields_of_type(
                 yield name, info
 
 
-def iterate_item_fields(item: type[ItemT] | ItemT) -> Generator[tuple[str, FieldInfo], None, None]:
+def iterate_item_fields(
+    item: type[ItemT] | ItemT,
+) -> Generator[tuple[str, FieldInfo], None, None]:
     """Iterate over all item fields.
 
     Parameters
