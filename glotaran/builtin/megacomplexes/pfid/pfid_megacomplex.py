@@ -85,7 +85,11 @@ class PFIDMegacomplex(Megacomplex):
         model_axis: ArrayLike,
         **kwargs,
     ):
-        clp_label = [f"{label}_pfid" for label in self.labels]
+        # clp_label = [f"{label}_pfid" for label in self.labels]
+        clp_label = [f"{label}_cos" for label in self.labels] + [
+            f"{label}_sin" for label in self.labels
+        ]
+
 
         frequencies = np.array(self.frequencies)
         rates = np.array(self.rates)
@@ -147,22 +151,50 @@ class PFIDMegacomplex(Megacomplex):
         dim1 = dataset.coords[global_dimension].size
         dim2 = len(self.labels)
         pfid = np.zeros((dim1, dim2), dtype=np.float64)
+        # for i, label in enumerate(self.labels):
+        #     pfid[:, i] = dataset.clp.sel(clp_label=f"{label}_pfid")
+        phase = np.zeros((dim1, dim2), dtype=np.float64)
         for i, label in enumerate(self.labels):
-            pfid[:, i] = dataset.clp.sel(clp_label=f"{label}_pfid")
+            sin = dataset.clp.sel(clp_label=f"{label}_sin")
+            cos = dataset.clp.sel(clp_label=f"{label}_cos")
+            pfid[:, i] = np.sqrt(sin * sin + cos * cos)
+            phase[:, i] = np.unwrap(np.arctan2(sin, cos))
 
         dataset[f"{prefix}_associated_spectra"] = (
             (global_dimension, prefix),
             pfid,
         )
 
+        dataset[f"{prefix}_phase"] = (
+            (global_dimension, prefix),
+            phase,
+        )
+
         # always index dependent
-        dataset[f"{prefix}_associated_concentration"] = (
+        # dataset[f"{prefix}_associated_concentration"] = (
+        #     (
+        #         global_dimension,
+        #         model_dimension,
+        #         prefix,
+        #     ),
+        #     dataset.matrix.sel(clp_label=[f"{label}_pfid" for label in self.labels]).values,
+        # )
+        dataset[f"{prefix}_sin"] = (
             (
                 global_dimension,
                 model_dimension,
                 prefix,
             ),
-            dataset.matrix.sel(clp_label=[f"{label}_pfid" for label in self.labels]).values,
+            dataset.matrix.sel(clp_label=[f"{label}_sin" for label in self.labels]).values,
+        )
+
+        dataset[f"{prefix}_cos"] = (
+            (
+                global_dimension,
+                model_dimension,
+                prefix,
+            ),
+            dataset.matrix.sel(clp_label=[f"{label}_cos" for label in self.labels]).values,
         )
 
 
@@ -295,8 +327,9 @@ def calculate_pfid_matrix_gaussian_irf(
     backsweep_period=1.
     )
     # added a minus to facilitate the NNLS fit of the instantaneous bleach
-    osc = -(a * b + c) * scale
+    # osc = -(a * b + c/ (rates**2 + frequency_diff**2)) * scale
+    osc = -(a * b ) * scale
     # output = np.zeros((len(model_axis), len(rates)), dtype=np.float64)
-    output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
-    # output = (osc.real * rates2 - frequency_diff * osc.imag) / (rates2**2 + frequency_diff**2)
-    return output
+    # output = (osc.real * rates - frequency_diff * osc.imag) / (rates**2 + frequency_diff**2)
+    # return output
+    return np.concatenate((osc.real, osc.imag), axis=1)
