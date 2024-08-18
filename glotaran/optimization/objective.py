@@ -218,7 +218,7 @@ class OptimizationObjective:
                 [e.residual for e in estimations], dims=residual_dims
             ).T
             result_dataset.attrs["root_mean_square_error"] = np.sqrt(
-                (result_dataset.residual**2).sum() / sum(result_dataset.residual.shape)
+                (result_dataset.residual.data**2).sum() / sum(result_dataset.residual.shape)
             )
             self.add_element_results(
                 result_dataset,
