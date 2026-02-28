@@ -106,6 +106,12 @@ class Result:
 
     The rows and columns are corresponding to :attr:`free_parameter_labels`."""
 
+    clp_standard_error_method: str | None = None
+    """Method used for CLP standard-error calculation if enabled."""
+
+    clp_standard_error_finite_difference_relative_step: float | None = None
+    """Relative finite-difference step used for CLP standard-error calculation."""
+
     degrees_of_freedom: int | None = None
     """Degrees of freedom in optimization :math:`N - N_{vars} - N_{clps}`."""
     number_of_clps: int | None = None
