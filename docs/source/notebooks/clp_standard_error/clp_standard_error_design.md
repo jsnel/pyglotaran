@@ -106,6 +106,27 @@ Step size uses relative scaling:
 
 This is robust for mixed parameter magnitudes and simple to reason about.
 
+### TIMP parity and sigma^2 scaling
+
+Comparison against TIMP's `getStdErrClp` implementation showed an important scaling requirement:
+
+- both the linear CLP variance term and the nonlinear propagated term must be scaled by residual variance (`sigma^2`).
+
+In TIMP notation, the propagated part uses `G * R_inv * G^T`, where `R_inv` is based on the nonlinear Hessian/Jacobian covariance and `sigma^2` is applied in the final CLP variance expression.
+
+For pyglotaran this implies:
+
+- linear block: `sigma^2 * pinv(X^T X)` (already applied in `clp_standard_error.py`),
+- nonlinear block: use `Cov(theta) ~= sigma^2 * (J^T J)^-1` when propagating with finite-difference sensitivities.
+
+An earlier implementation passed an unscaled nonlinear covariance matrix (`(J^T J)^-1`) into CLP propagation. For low-RMSE fits this can inflate CLP standard errors by approximately `1 / RMSE^2`.
+
+The fix is applied in `glotaran/optimization/optimizer.py` before calling `calculate_clp_standard_error(...)`:
+
+- `clp_propagation_covariance = (root_mean_square_error ** 2) * covariance_matrix`
+
+This restores parity with the TIMP formula and keeps CLP-SE magnitudes on the expected scale.
+
 ### Residual-method support
 
 Current logic explicitly targets the variable-projection residual path and warns/skips for unsupported residual methods.
