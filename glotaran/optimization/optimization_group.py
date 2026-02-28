@@ -130,8 +130,16 @@ class OptimizationGroup:
                 weight = weight.T
             result_dataset["weight"] = (result_dataset.data.dims, weight)
 
-    def create_result_data(self) -> dict[str, xr.Dataset]:
+    def create_result_data(
+        self,
+        clp_standard_error: dict[str, xr.DataArray] | None = None,
+    ) -> dict[str, xr.Dataset]:
         """Create resulting datasets.
+
+        Parameters
+        ----------
+        clp_standard_error : dict[str, xr.DataArray] | None
+            Optional CLP standard-error values per dataset.
 
         Returns
         -------
@@ -162,6 +170,9 @@ class OptimizationGroup:
             if label in global_matrices:
                 result_dataset["global_matrix"] = global_matrices[label]
             result_dataset["clp"] = clps[label]
+            if clp_standard_error is not None and label in clp_standard_error:
+                result_dataset["clp_standard_error"] = clp_standard_error[label]
+                result_dataset["clp_standard_error"].attrs.update(clp_standard_error[label].attrs)
 
             if self._add_svd:
                 self.add_svd_data("residual", result_dataset, model_dimension, global_dimension)

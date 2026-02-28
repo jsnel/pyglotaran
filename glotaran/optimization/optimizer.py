@@ -10,6 +10,8 @@ from scipy.optimize import OptimizeResult
 from scipy.optimize import least_squares
 
 from glotaran import __version__ as glotaran_version
+from glotaran.optimization.clp_standard_error import ClpStandardErrorSettings
+from glotaran.optimization.clp_standard_error import calculate_clp_standard_error
 from glotaran.optimization.optimization_group import OptimizationGroup
 from glotaran.optimization.optimization_history import OptimizationHistory
 from glotaran.parameter import ParameterHistory
@@ -263,6 +265,12 @@ class Optimizer:
                 )
             )
 
+            if self._scheme.compute_clp_standard_error:
+                result_args["clp_standard_error_method"] = "linear_plus_nonlinear_propagation"
+                result_args["clp_standard_error_finite_difference_relative_step"] = (
+                    self._scheme.clp_standard_error_finite_difference_relative_step
+                )
+
         result_args["additional_penalty"] = [
             group.get_additional_penalties() for group in self._optimization_groups
         ]
@@ -275,7 +283,18 @@ class Optimizer:
         result_args["data"] = {}
         for group in self._optimization_groups:
             group.calculate(self._parameters)
-            result_args["data"].update(group.create_result_data())
+            clp_standard_error = None
+            if success and self._scheme.compute_clp_standard_error:
+                clp_standard_error = calculate_clp_standard_error(
+                    optimization_group=group,
+                    parameters=self._parameters,
+                    free_parameter_labels=self._free_parameter_labels,
+                    covariance_matrix=result_args["covariance_matrix"],
+                    settings=ClpStandardErrorSettings(
+                        relative_step=self._scheme.clp_standard_error_finite_difference_relative_step  # noqa: E501
+                    ),
+                )
+            result_args["data"].update(group.create_result_data(clp_standard_error))
 
         return Result(**result_args)
 
