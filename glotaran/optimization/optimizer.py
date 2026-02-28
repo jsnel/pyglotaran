@@ -285,11 +285,17 @@ class Optimizer:
             group.calculate(self._parameters)
             clp_standard_error = None
             if success and self._scheme.compute_clp_standard_error:
+                # CLP uncertainty propagation expects Cov(theta) ~= sigma^2 * (J^T J)^-1.
+                # ``result_args["covariance_matrix"]`` stores the unscaled inverse Jacobian
+                # product used elsewhere, so apply RMSE^2 scaling for CLP-SE only.
+                clp_propagation_covariance = (
+                    result_args["root_mean_square_error"] ** 2
+                ) * result_args["covariance_matrix"]
                 clp_standard_error = calculate_clp_standard_error(
                     optimization_group=group,
                     parameters=self._parameters,
                     free_parameter_labels=self._free_parameter_labels,
-                    covariance_matrix=result_args["covariance_matrix"],
+                    covariance_matrix=clp_propagation_covariance,
                     settings=ClpStandardErrorSettings(
                         relative_step=self._scheme.clp_standard_error_finite_difference_relative_step  # noqa: E501
                     ),
