@@ -228,3 +228,38 @@ def test_result_data(model_weight: bool, index_dependent: bool):
         assert result_data.matrix.dims == ("global", "model", "clp_label")
     else:
         assert result_data.matrix.dims == ("model", "clp_label")
+
+
+def test_result_data_with_clp_standard_error():
+    model = OneCompartmentDecay.model
+    model.megacomplex["m1"].is_index_dependent = False
+
+    sim_model = OneCompartmentDecay.sim_model
+    sim_model.megacomplex["m1"].is_index_dependent = False
+
+    data = simulate(
+        sim_model,
+        "dataset1",
+        OneCompartmentDecay.wanted_parameters,
+        {"global": OneCompartmentDecay.global_axis, "model": OneCompartmentDecay.model_axis},
+    )
+    scheme = Scheme(
+        model=model,
+        parameters=OneCompartmentDecay.initial_parameters,
+        data={"dataset1": data},
+        maximum_number_function_evaluations=10,
+        compute_clp_standard_error=True,
+        clp_standard_error_finite_difference_relative_step=1e-6,
+    )
+
+    result = optimize(scheme, raise_exception=True)
+
+    assert result.success
+    assert result.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert result.clp_standard_error_finite_difference_relative_step == pytest.approx(1e-6)
+
+    result_data = result.data["dataset1"]
+    assert "clp_standard_error" in result_data
+    assert result_data["clp_standard_error"].dims == result_data["clp"].dims
+    assert np.isfinite(result_data["clp_standard_error"].values).all()
+    assert result_data["clp_standard_error"].attrs["method"] == "linear_plus_nonlinear_propagation"

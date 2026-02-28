@@ -39,6 +39,8 @@ class Scheme:
 
     clp_link_tolerance: float = 0.0
     clp_link_method: Literal["nearest", "backward", "forward"] = "nearest"
+    compute_clp_standard_error: bool = False
+    clp_standard_error_finite_difference_relative_step: float = 1e-6
 
     maximum_number_function_evaluations: int | None = None
     add_svd: bool = True
@@ -99,6 +101,7 @@ class Scheme:
             f"{self.maximum_number_function_evaluations}\n"
         )
         markdown_str += f"* *clp_link_tolerance*: {self.clp_link_tolerance}\n"
+        markdown_str += f"* *compute_clp_standard_error*: {self.compute_clp_standard_error}\n"
 
         return model_markdown_str + MarkdownStr(markdown_str)
 
