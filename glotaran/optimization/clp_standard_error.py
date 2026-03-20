@@ -177,7 +177,11 @@ def _calculate_unlinked_linear_variance(
             dof = max(1, residual.size - full_matrix.shape[1])
             sigma_squared = float(np.dot(residual, residual) / dof)
             cov = sigma_squared * _safe_pinv_xtx(full_matrix)
-            linear_variance[dataset_label][:] = np.diag(cov).reshape(clp.shape)
+            linear_variance[dataset_label][:] = (
+                np.diag(np.diag(cov))
+                if cov.shape == clp.shape
+                else np.diag(cov).reshape(clp.shape)
+            )
             continue
 
         global_axis = data_provider.get_global_axis(dataset_label)
