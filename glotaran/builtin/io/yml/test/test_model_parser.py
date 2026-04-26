@@ -118,6 +118,10 @@ def test_irf(model):
         if i == 2:
             assert irf.center_dispersion_coefficients == ["5", "6"]
             assert irf.width_dispersion_coefficients == ["7", "8"]
+            assert irf.width_dispersion_skewed_gaussian_amplitude == "10"
+            assert irf.width_dispersion_skewed_gaussian_location == "11"
+            assert irf.width_dispersion_skewed_gaussian_width == "12"
+            assert irf.width_dispersion_skewed_gaussian_skewness == "13"
             assert irf.scale == ["9"]
         assert irf.normalize == (i == 1)
 

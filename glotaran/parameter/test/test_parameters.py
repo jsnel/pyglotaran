@@ -254,6 +254,34 @@ def test_parameters_to_from_df():
     assert parameters == Parameters.from_dataframe(parameter_df)
 
 
+def test_parameters_to_dataframe_as_optimized():
+    parameters = Parameters.from_dict(
+        {
+            "a": [
+                ["estimated", 12.0, {"vary": True}],
+                ["fixed", 4.0, {"vary": False}],
+            ]
+        }
+    )
+    parameters.get("a.estimated").standard_error = 3.0
+    parameters.get("a.fixed").standard_error = 2.0
+
+    parameter_df = parameters.to_dataframe(as_optimized=True)
+
+    assert "T-value" in parameter_df
+    assert parameter_df.columns.tolist().index("T-value") == (
+        parameter_df.columns.tolist().index("standard_error") + 1
+    )
+
+    estimated_parameter = parameter_df[parameter_df["label"] == "a.estimated"].iloc[0]
+    fixed_parameter = parameter_df[parameter_df["label"] == "a.fixed"].iloc[0]
+
+    assert estimated_parameter["standard_error"] == 3.0
+    assert estimated_parameter["T-value"] == 4.0
+    assert np.isnan(fixed_parameter["standard_error"])
+    assert np.isnan(fixed_parameter["T-value"])
+
+
 def test_parameters_from_dataframe_minimal_required_columns():
     """No error if df only contains ``label`` and ``value`` columns and error if any is missing."""
     minimal_df = pd.DataFrame([{"label": "foo.1", "value": 1}])

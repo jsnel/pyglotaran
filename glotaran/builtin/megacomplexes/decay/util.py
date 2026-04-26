@@ -13,6 +13,7 @@ from glotaran.builtin.megacomplexes.decay.decay_matrix_gaussian_irf import (
     calculate_decay_matrix_gaussian_irf_on_index,
 )
 from glotaran.builtin.megacomplexes.decay.irf import IrfMultiGaussian
+from glotaran.builtin.megacomplexes.decay.irf import IrfMultiMultiGaussian
 from glotaran.builtin.megacomplexes.decay.irf import IrfSpectralMultiGaussian
 from glotaran.model import DatasetModel
 from glotaran.model import Megacomplex
@@ -178,7 +179,10 @@ def decay_matrix_implementation_index_independent(
             backsweep,
             backsweep_period,
         )
-        if dataset_model.irf.normalize:
+        irf = dataset_model.irf
+        if irf.normalize and (
+            not isinstance(irf, IrfMultiMultiGaussian) or not irf.normalize_area
+        ):
             matrix /= np.sum(irf_scales)
 
     else:
@@ -217,7 +221,8 @@ def decay_matrix_implementation_index_dependent(
         backsweep,
         backsweep_period,
     )
-    if dataset_model.irf.normalize:
+    irf = dataset_model.irf
+    if irf.normalize and (not isinstance(irf, IrfMultiMultiGaussian) or not irf.normalize_area):
         matrix /= np.sum(irf_scales)
 
 
@@ -372,13 +377,21 @@ def retrieve_irf(dataset_model: DatasetModel, dataset: xr.Dataset, global_dimens
         ).data,
     )
 
-    center = irf.center if isinstance(irf.center, list) else [irf.center]
-    width = irf.width if isinstance(irf.width, list) else [irf.width]
+    center_raw = irf.center if isinstance(irf.center, list) else [irf.center]
+    if center_raw and isinstance(center_raw[0], list):
+        # IrfMultiMultiGaussian: center/width are list[list[Parameter]]; use the expanded floats
+        _centers, _widths, _, _, _, _ = irf.parameter(0, dataset.coords[global_dimension].values)
+        center = [float(c) for c in _centers]
+        width = [float(w) for w in _widths]
+    else:
+        center = center_raw
+        width = irf.width if isinstance(irf.width, list) else [irf.width]
     dataset["irf_center"] = ("irf_nr", center) if len(center) > 1 else center[0]
     dataset["irf_width"] = ("irf_nr", width) if len(width) > 1 else width[0]
 
     if irf.shift is not None:
-        dataset["irf_shift"] = (global_dimension, [center[0] - p.value for p in irf.shift])
+        c0 = center[0].value if hasattr(center[0], "value") else center[0]
+        dataset["irf_shift"] = (global_dimension, [c0 - p.value for p in irf.shift])
 
     if isinstance(irf, IrfSpectralMultiGaussian) and irf.dispersion_center:
         dataset["irf_center_location"] = (

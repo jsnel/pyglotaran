@@ -36,6 +36,7 @@ class TsvProjectIo(ProjectIoInterface):
         parameters: Parameters,
         file_name: str,
         *,
+        as_optimized: bool = False,
         replace_infinfinity: bool = True,
     ) -> None:
         """Save a :class:`Parameters` to a TSV file.
@@ -54,5 +55,6 @@ class TsvProjectIo(ProjectIoInterface):
             file_name,
             format_name="csv",
             sep="\t",
+            as_optimized=as_optimized,
             replace_infinfinity=replace_infinfinity,
         )
