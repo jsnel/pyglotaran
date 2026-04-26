@@ -571,12 +571,29 @@ class MatrixProviderUnlinked(MatrixProvider):
         for label, dataset_model in self.group.dataset_models.items():
             if has_dataset_model_global_model(dataset_model):
                 continue
-            scale = float(dataset_model.scale or 1)
+            scale_val = float(dataset_model.scale.value) if dataset_model.scale else 1.0
+            scale_list = dataset_model.scale_list
             weight = self._data_provider.get_weight(label)
-            self._prepared_matrix_container[label] = self.reduce_matrix(
-                self.get_matrix_container(label).create_scaled_matrix(scale),
-                self._data_provider.get_global_axis(label),
-            )
+            global_axis = self._data_provider.get_global_axis(label)
+            if scale_list is not None:
+                if len(scale_list) != len(global_axis):
+                    raise ValueError(
+                        f"Dataset '{label}': length of 'scale_list' ({len(scale_list)}) "
+                        f"does not match the number of global axis points ({len(global_axis)})."
+                    )
+                reduced = self.reduce_matrix(
+                    self.get_matrix_container(label),
+                    global_axis,
+                )
+                self._prepared_matrix_container[label] = [
+                    mc.create_scaled_matrix(scale_val * float(scale_list[i].value))
+                    for i, mc in enumerate(reduced)
+                ]
+            else:
+                self._prepared_matrix_container[label] = self.reduce_matrix(
+                    self.get_matrix_container(label).create_scaled_matrix(scale_val),
+                    global_axis,
+                )
 
             if weight is not None:
                 self._prepared_matrix_container[label] = [
@@ -703,6 +720,7 @@ class MatrixProviderLinked(MatrixProvider):
         full_clp_labels = self.align_full_clp_labels()
         for i, global_index_value in enumerate(self._data_provider.aligned_global_axis):
             matrix_containers = []
+            matrix_scales = []
             group_label = self._data_provider.get_aligned_group_label(i)
             for label, index in zip(
                 self._data_provider.group_definitions[group_label],
@@ -719,14 +737,13 @@ class MatrixProviderLinked(MatrixProvider):
                 else:
                     matrix_containers.append(matrix_container_temp)
 
-            matrix_scales = [
-                (
-                    self.group.dataset_models[label].scale
-                    if self.group.dataset_models[label].scale is not None
-                    else 1
-                )
-                for label in self._data_provider.group_definitions[group_label]
-            ]
+                ds_scale = self.group.dataset_models[label].scale
+                ds_scale_val = float(ds_scale) if ds_scale is not None else 1.0
+                ds_scale_list = self.group.dataset_models[label].scale_list
+                if ds_scale_list is not None:
+                    matrix_scales.append(ds_scale_val * float(ds_scale_list[index].value))
+                else:
+                    matrix_scales.append(ds_scale_val)
 
             group_matrix = self.align_matrices(
                 matrix_containers,

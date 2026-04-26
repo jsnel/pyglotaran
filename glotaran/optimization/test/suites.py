@@ -10,7 +10,6 @@ class OneCompartmentDecay:
     scale = 2
     wanted_parameters = Parameters.from_list([101e-4])
     initial_parameters = Parameters.from_list([100e-5, [scale, {"vary": False}]])
-
     global_axis = np.asarray([1.0])
     model_axis = np.arange(0, 150, 1.5)
 
@@ -39,6 +38,45 @@ class OneCompartmentDecay:
         },
     }
     model_dict["dataset"]["dataset1"]["scale"] = "2"  # type:ignore[index]
+    model = DecayModel(**model_dict)
+
+
+class OneCompartmentDecayScaleList:
+    """One-compartment decay where scale is a per-wavelength list of parameters."""
+
+    scale = [2.0, 3.0]  # per-wavelength scales used to pre-divide simulated data
+    wanted_parameters = Parameters.from_list([101e-4])
+    initial_parameters = Parameters.from_list(
+        [100e-5, [2.0, {"vary": False}], [3.0, {"vary": False}]]
+    )
+
+    global_axis = np.asarray([1.0, 2.0])
+    model_axis = np.arange(0, 150, 1.5)
+
+    sim_model_dict = {
+        "megacomplex": {
+            "m1": {"type": "simple-kinetic-test-mc", "is_index_dependent": False},
+            "m2": {"type": "simple-spectral-test-mc"},
+        },
+        "dataset": {
+            "dataset1": {
+                "megacomplex": ["m1"],
+                "global_megacomplex": ["m2"],
+                "kinetic": ["1"],
+            }
+        },
+    }
+    sim_model = DecayModel(**sim_model_dict)
+    model_dict = {
+        "megacomplex": {"m1": {"type": "simple-kinetic-test-mc", "is_index_dependent": False}},
+        "dataset": {
+            "dataset1": {
+                "megacomplex": ["m1"],
+                "kinetic": ["1"],
+                "scale_list": ["2", "3"],
+            }
+        },
+    }
     model = DecayModel(**model_dict)
 
 

@@ -55,6 +55,8 @@ dataset:
     global_megacomplex: null
     global_megacomplex_scale: null
     scale: null
+    scale_list: null
+    single_amplitude_model: false
     irf: gaussian_irf
 """
 

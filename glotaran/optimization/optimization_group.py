@@ -100,6 +100,17 @@ class OptimizationGroup:
         """
         return self._estimation_provider.get_additional_penalties()
 
+    def get_additional_penalty_areas(self) -> list[dict]:
+        """Get the area breakdown for each equal-area CLP penalty.
+
+        Returns
+        -------
+        list[dict]
+            One dict per penalty with keys: source, source_intervals, source_area,
+            target, target_intervals, target_area, parameter, weight, penalty.
+        """
+        return self._estimation_provider.get_additional_penalty_areas()
+
     def get_full_penalty(self) -> ArrayLike:
         """Get the full penalty.
 
@@ -193,10 +204,15 @@ class OptimizationGroup:
                 else result_dataset.attrs["root_mean_square_error"]
             )
 
+            _scale = dataset_model.scale
+            _scale_list = dataset_model.scale_list
             result_dataset.attrs["dataset_scale"] = (
-                1
-                if dataset_model.scale is None
-                else dataset_model.scale.value  # type:ignore[union-attr]
+                _scale.value if _scale is not None else 1  # type:ignore[union-attr]
+            )
+            result_dataset.attrs["dataset_scale_list"] = (
+                [p.value for p in _scale_list]  # type:ignore[union-attr]
+                if _scale_list is not None
+                else None
             )
 
             # reconstruct fitted data

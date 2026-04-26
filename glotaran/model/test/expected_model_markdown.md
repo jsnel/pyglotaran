@@ -81,6 +81,7 @@
   - _Force Index Dependent_: False
   - _Megacomplex_: ['m1']
   - _Scale_: scale_1
+  - _Single Amplitude Model_: False
   - _Test Item Dataset_: t1
   - _Test Property Dataset1_: 1
   - _Test Property Dataset2_: bar
@@ -92,6 +93,7 @@
   - _Megacomplex_: ['m2']
   - _Global Megacomplex_: ['m1']
   - _Scale_: scale_2
+  - _Single Amplitude Model_: False
   - _Test Item Dataset_: t2
   - _Test Property Dataset1_: 1
   - _Test Property Dataset2_: bar

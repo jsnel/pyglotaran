@@ -439,6 +439,8 @@ def fill_item(item: ItemT, model: Model, parameters: Parameters) -> ItemT:
     item = evolve(item)
     fill_item_model_attributes(item, model, parameters)
     fill_item_parameter_attributes(item, parameters)
+    if hasattr(item, "_fill_parameters"):
+        item._fill_parameters(parameters)
     return item
 
 
@@ -511,11 +513,18 @@ def get_item_parameter_issues(item: Item, parameters: Parameters) -> list[ItemIs
     -------
     list[ItemIssue]
     """
-    return [
+    issues = [
         ParameterIssue(label)
         for name, label in iterate_parameter_names_and_labels(item)
         if not parameters.has(label)
     ]
+    if hasattr(item, "_iter_nested_parameter_labels"):
+        issues += [
+            ParameterIssue(label)
+            for _, label in item._iter_nested_parameter_labels()
+            if not parameters.has(label)
+        ]
+    return issues
 
 
 def get_item_validator_issues(

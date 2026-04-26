@@ -173,6 +173,7 @@ class FolderProjectIo(ProjectIoInterface):
             result.optimized_parameters,
             result_folder / optimized_parameters_path,
             format_name=saving_options.parameter_format,
+            as_optimized=True,
             allow_overwrite=True,
         )
         paths.append((result_folder / optimized_parameters_path).as_posix())
@@ -186,6 +187,8 @@ class FolderProjectIo(ProjectIoInterface):
         paths.append(optimization_history_path.as_posix())
 
         for label, dataset in result.data.items():
+            if saving_options.data_filter is not None and not saving_options.data_filter:
+                continue
             data_path = result_folder / f"{label}.{saving_options.data_format}"
             if saving_options.data_filter is not None:
                 dataset = dataset[saving_options.data_filter]

@@ -298,3 +298,39 @@ def test_kmatrix_ipython_rendering():
 
     assert test_markdown_str in rendered_markdown_return
     assert rendered_markdown_return[test_markdown_str].startswith("| compartment")
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (1.0, "1"),
+        (0.0202, "0.0202"),
+        (0.00105, "0.00105"),
+        (1.079278, "1.0793"),
+        (1.05e-8, "1.05e-08"),
+        (np.nan, "nan"),
+    ],
+)
+def test_format_markdown_number(value, expected):
+    assert format_markdown_number(value) == expected
+
+
+def test_kmatrix_markdown_uses_adaptive_rounding():
+    params = Parameters.from_list([1.0, 0.0202, 1.05e-8])
+    kmatrix = KMatrix(
+        label="A",
+        matrix={
+            ("s1", "s1"): "1",
+            ("s2", "s2"): "2",
+            ("s3", "s3"): "3",
+        },
+    )
+    kmatrix = fill_item(kmatrix, None, params)
+
+    rendered = str(kmatrix.matrix_as_markdown(fill_parameters=True))
+
+    assert "| compartment | s1 | s2 | s3" in rendered
+    assert "| s1 | 1 | 0 | 0|" in rendered
+    assert "| s2 | 0 | 0.0202 | 0|" in rendered
+    assert "| s3 | 0 | 0 | 1.05e-08|" in rendered
+    assert ".0000e+00" not in rendered

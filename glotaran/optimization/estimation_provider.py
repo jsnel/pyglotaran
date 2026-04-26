@@ -64,6 +64,7 @@ class EstimationProvider:
         """
         self._group = dataset_group
         self._clp_penalty: list[float] = []
+        self._clp_penalty_areas: list[dict] = []
         try:
             self._residual_function = SUPPORTED_RESIUDAL_FUNCTIONS[dataset_group.residual_function]
         except KeyError as e:
@@ -157,12 +158,23 @@ class EstimationProvider:
         """
         return self._clp_penalty
 
+    def get_additional_penalty_areas(self) -> list[dict]:
+        """Get the area breakdown for each equal-area CLP penalty.
+
+        Returns
+        -------
+        list[dict]
+            One dict per penalty with keys: source, source_intervals, source_area,
+            target, target_intervals, target_area, parameter, weight, penalty.
+        """
+        return self._clp_penalty_areas
+
     def calculate_clp_penalties(
         self,
         clp_labels: list[list[str]],
         clps: list[np.ndarray],
         global_axis: np.ndarray,
-    ) -> list[float]:
+    ) -> tuple[list[float], list[dict]]:
         """Calculate the clp penalty.
 
         Parameters
@@ -176,12 +188,15 @@ class EstimationProvider:
 
         Returns
         -------
-        list[float]
-            The clp penalty.
+        tuple[list[float], list[dict]]
+            A pair of (penalty_values, area_info).  Each entry in area_info is a dict
+            with keys: source, source_intervals, source_area, target, target_intervals,
+            target_area, parameter, weight, penalty.
         """
         model = self.group.model
         parameters = self.group.parameters
         penalties = []
+        areas = []
         for penalty in model.clp_penalties:
             if not isinstance(penalty, EqualAreaPenalty):
                 continue
@@ -215,11 +230,28 @@ class EstimationProvider:
                 )
                 continue
 
-            area_penalty = np.abs(np.sum(source_area) - penalty.parameter * np.sum(target_area))
+            source_sum = float(np.sum(source_area))
+            target_sum = float(np.sum(target_area))
+            parameter_value = float(penalty.parameter)
+            area_penalty = np.abs(source_sum - parameter_value * target_sum)
+            penalty_value = float(area_penalty * penalty.weight)
 
-            penalties.append(area_penalty * penalty.weight)
+            penalties.append(penalty_value)
+            areas.append(
+                {
+                    "source": penalty.source,
+                    "source_intervals": list(penalty.source_intervals),
+                    "source_area": source_sum,
+                    "target": penalty.target,
+                    "target_intervals": list(penalty.target_intervals),
+                    "target_area": target_sum,
+                    "parameter": parameter_value,
+                    "weight": float(penalty.weight),
+                    "penalty": penalty_value,
+                }
+            )
 
-        return penalties
+        return penalties, areas
 
     def estimate(self):
         """Calculate the estimation.
@@ -430,11 +462,13 @@ class EstimationProviderUnlinked(EstimationProvider):
             self._clps[label].append(clp)
             self._residuals[label].append(residual)
 
-        self._clp_penalty += self.calculate_clp_penalties(
+        new_penalties, new_areas = self.calculate_clp_penalties(
             clp_labels,
             self._clps[label],
             global_axis,
         )
+        self._clp_penalty += new_penalties
+        self._clp_penalty_areas += new_areas
 
 
 class EstimationProviderLinked(EstimationProvider):
@@ -477,7 +511,7 @@ class EstimationProviderLinked(EstimationProvider):
             )
             self._residuals[index] = residual
 
-        self._clp_penalty = self.calculate_clp_penalties(
+        self._clp_penalty, self._clp_penalty_areas = self.calculate_clp_penalties(
             self._matrix_provider.aligned_full_clp_labels,
             self._clps,
             self._data_provider.aligned_global_axis,
