@@ -274,6 +274,9 @@ class Optimizer:
         result_args["additional_penalty"] = [
             group.get_additional_penalties() for group in self._optimization_groups
         ]
+        result_args["additional_penalty_areas"] = [
+            group.get_additional_penalty_areas() for group in self._optimization_groups
+        ]
 
         full_penalty = self.calculate_penalty()
         result_args["cost"] = 0.5 * np.dot(full_penalty, full_penalty)

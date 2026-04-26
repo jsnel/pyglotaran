@@ -7,6 +7,7 @@ from glotaran.optimization.test.models import SimpleTestModel
 from glotaran.optimization.test.suites import FullModel
 from glotaran.optimization.test.suites import MultichannelMulticomponentDecay
 from glotaran.optimization.test.suites import OneCompartmentDecay
+from glotaran.optimization.test.suites import OneCompartmentDecayScaleList
 from glotaran.optimization.test.suites import ThreeDatasetDecay
 from glotaran.optimization.test.suites import TwoCompartmentDecay
 from glotaran.parameter import Parameters
@@ -263,3 +264,51 @@ def test_result_data_with_clp_standard_error():
     assert result_data["clp_standard_error"].dims == result_data["clp"].dims
     assert np.isfinite(result_data["clp_standard_error"].values).all()
     assert result_data["clp_standard_error"].attrs["method"] == "linear_plus_nonlinear_propagation"
+
+
+@pytest.mark.parametrize("link_clp", [True, False])
+def test_optimization_scale_list(link_clp):
+    """Verify that a per-wavelength scale list is applied correctly during optimization."""
+    suite = OneCompartmentDecayScaleList
+
+    model = suite.model
+    model.megacomplex["m1"].is_index_dependent = False
+
+    sim_model = suite.sim_model
+    sim_model.megacomplex["m1"].is_index_dependent = False
+
+    assert model.valid(suite.initial_parameters)
+
+    data = simulate(
+        sim_model,
+        "dataset1",
+        suite.wanted_parameters,
+        {"global": suite.global_axis, "model": suite.model_axis},
+    )
+    # Divide each wavelength by its scale so the model (which applies that scale) recovers
+    # the original rates.
+    data["data"] /= suite.scale
+
+    model.dataset_groups["default"].link_clp = link_clp
+
+    scheme = Scheme(
+        model=model,
+        parameters=suite.initial_parameters,
+        data={"dataset1": data},
+        maximum_number_function_evaluations=10,
+        clp_link_tolerance=0.1,
+    )
+    result = optimize(scheme, raise_exception=True)
+    assert result.success
+
+    # Check that the kinetic rate was recovered.
+    for param in result.optimized_parameters.all():
+        if param.vary:
+            assert np.allclose(
+                param.value, suite.wanted_parameters.get(param.label).value, rtol=1e-1
+            )
+
+    # Check that dataset_scale_list stores the list of per-wavelength scale values.
+    result_scale = result.data["dataset1"].attrs["dataset_scale_list"]
+    assert isinstance(result_scale, list)
+    assert np.allclose(result_scale, suite.scale)

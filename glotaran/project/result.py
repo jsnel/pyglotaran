@@ -91,6 +91,18 @@ class Result:
     additional_penalty: list[np.ndarray] | None = exclude_from_dict_field(None)
     """A vector with the value for each additional penalty, or None"""
 
+    additional_penalty_areas: list[list[dict]] | None = exclude_from_dict_field(None)
+    """Area breakdown for each equal-area CLP penalty, or None.
+
+    One list per optimization group.  Each entry in the inner list is a dict with keys:
+    ``source``, ``source_intervals``, ``source_area``, ``target``, ``target_intervals``,
+    ``target_area``, ``parameter``, ``weight``, ``penalty``.
+
+    ``source_area`` and ``target_area`` are the sums of the CLP (SAS) values over all
+    spectral grid points that fall within the respective intervals.  The penalty
+    contribution to chi-square is ``penalty ** 2``.
+    """
+
     cost: ArrayLike | None = exclude_from_dict_field(None)
     """The final cost."""
 

@@ -7,6 +7,8 @@ from glotaran.model import ModelItemTyped
 from glotaran.model import ParameterType
 from glotaran.model import attribute
 from glotaran.model import item
+from glotaran.parameter import Parameter
+from glotaran.parameter import Parameters
 
 
 @item
@@ -115,6 +117,204 @@ class IrfGaussian(IrfMultiGaussian):
 
 
 @item
+class IrfMultiMultiGaussian(IrfMultiGaussian):
+    """
+    Represents a multi-multi-gaussian IRF.
+
+    center, width, and scale are lists of lists. Each sublist defines a group
+    of gaussian shapes. Within each sublist, center parameters are additive
+    relative to the first element (center[k] = center[0] + center[k] for k > 0)
+    and scale parameters are multiplicative relative to the first element
+    (scale[k] = scale[0] * scale[k] for k > 0). Width parameters are always
+    absolute (independent).
+
+    The resulting flat list of gaussians is equivalent to the multi-gaussian
+    type after applying the transformations.
+    """
+
+    type: str = "multi-multi-gaussian"
+
+    center: list[list[ParameterType]]
+    width: list[list[ParameterType]]
+    scale: list[list[ParameterType]] | None = None
+    normalize_area: bool = True
+    normarea: float = 1000.0
+
+    def _fill_parameters(self, parameters: Parameters) -> None:
+        """Fill nested list parameter attributes from string labels."""
+
+        def _resolve(v: ParameterType) -> Parameter:
+            label = v if isinstance(v, str) else v.label
+            return parameters.get(label)
+
+        self.center = [[_resolve(v) for v in sublist] for sublist in self.center]
+        self.width = [[_resolve(v) for v in sublist] for sublist in self.width]
+        if self.scale is not None:
+            self.scale = [[_resolve(v) for v in sublist] for sublist in self.scale]
+
+    def _iter_nested_parameter_labels(self):
+        """Yield (field_name, label) pairs for nested list parameter attributes."""
+        for sublist in self.center:
+            for v in sublist:
+                yield "center", (v if isinstance(v, str) else v.label)
+        for sublist in self.width:
+            for v in sublist:
+                yield "width", (v if isinstance(v, str) else v.label)
+        if self.scale is not None:
+            for sublist in self.scale:
+                for v in sublist:
+                    yield "scale", (v if isinstance(v, str) else v.label)
+
+    def parameter(
+        self, global_index: int, global_axis: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, bool, float]:
+        """Return IRF parameters with nested list expansion and shift applied.
+
+        Within each sublist:
+        - center[k] for k > 0 is added to center[0] (additive)
+        - scale[k] for k > 0 is multiplied by scale[0] (multiplicative)
+        - width values are absolute (unchanged)
+        """
+        n_sublists = len(self.center)
+        if len(self.width) != n_sublists:
+            raise ModelError(
+                f"len(width) ({len(self.width)}) must equal len(center) ({n_sublists}) "
+                f"for irf '{self.label}'."
+            )
+        if self.scale is not None and len(self.scale) != n_sublists:
+            raise ModelError(
+                f"len(scale) ({len(self.scale)}) must equal len(center) ({n_sublists}) "
+                f"for irf '{self.label}'."
+            )
+
+        flat_centers: list[float] = []
+        flat_widths: list[float] = []
+        flat_scales: list[float] = []
+        sublist_areas: list[float] = []
+        gaussian_area_factor = np.sqrt(2 * np.pi)
+
+        for sublist_index in range(n_sublists):
+            center_sublist = self.center[sublist_index]
+            width_sublist = self.width[sublist_index]
+            if len(width_sublist) != len(center_sublist):
+                raise ModelError(
+                    f"len(width[{sublist_index}]) ({len(width_sublist)}) must equal "
+                    f"len(center[{sublist_index}]) ({len(center_sublist)}) for irf '{self.label}'."
+                )
+
+            base_center = center_sublist[0].value
+            transformed_centers = [base_center]
+            transformed_centers.extend(
+                base_center + center_value.value for center_value in center_sublist[1:]
+            )
+            transformed_widths = [w.value for w in width_sublist]
+
+            if self.scale is not None:
+                scale_sublist = self.scale[sublist_index]
+                if len(scale_sublist) != len(center_sublist):
+                    raise ModelError(
+                        f"len(scale[{sublist_index}]) ({len(scale_sublist)}) must equal "
+                        f"len(center[{sublist_index}]) ({len(center_sublist)}) "
+                        f"for irf '{self.label}'."
+                    )
+                base_scale = scale_sublist[0].value
+                transformed_scales = [base_scale]
+                transformed_scales.extend(base_scale * s.value for s in scale_sublist[1:])
+            else:
+                transformed_scales = [1.0] * len(center_sublist)
+
+            flat_centers.extend(transformed_centers)
+            flat_widths.extend(transformed_widths)
+            flat_scales.extend(transformed_scales)
+
+            if self.normalize_area:
+                # Area of sum of Gaussians in one sublist.
+                sublist_area = float(
+                    np.sum(np.asarray(transformed_scales) * np.abs(np.asarray(transformed_widths)))
+                    * gaussian_area_factor
+                )
+                sublist_areas.append(sublist_area)
+
+        centers = np.asarray(flat_centers)
+        widths = np.asarray(flat_widths)
+        scales = np.asarray(flat_scales)
+
+        if self.normalize_area and self.normalize:
+            total_area = float(np.sum(sublist_areas))
+            if not np.isfinite(self.normarea) or self.normarea <= 0:
+                raise ModelError(
+                    f"Cannot normalize multi-multi-gaussian irf '{self.label}': "
+                    f"non-finite or non-positive normarea {self.normarea}."
+                )
+            if not np.isfinite(total_area) or total_area <= 0:
+                raise ModelError(
+                    f"Cannot normalize multi-multi-gaussian irf '{self.label}': "
+                    f"non-finite or non-positive total area {total_area}."
+                )
+            scales = scales * (self.normarea / total_area)
+
+        shift = 0
+        if self.shift is not None:
+            if global_index >= len(self.shift):
+                raise ModelError(
+                    f"No shift parameter for index {global_index} "
+                    f"({global_axis[global_index]}) in irf {self.label}"
+                )
+            shift = self.shift[global_index]
+
+        backsweep = self.backsweep
+        backsweep_period = self.backsweep_period.value if self.backsweep else 0
+
+        return centers, widths, scales, shift, backsweep, backsweep_period
+
+
+@item
+class IrfConvMultiMultiGaussian(IrfMultiMultiGaussian):
+    """Represents a convolved multi-multi-gaussian IRF.
+
+    Extends ``type: multi-multi-gaussian`` with a per-index ``convwidth`` parameter list.
+    Before the IRF is evaluated, each per-gaussian width is broadened in quadrature::
+
+        cwidth_k = sqrt(convwidth[global_index]^2 + width_k^2)
+
+    This models an additional Gaussian broadening (e.g. a laser pulse or detection
+    response) that convolves with the underlying multi-multi-gaussian IRF.
+
+    ``convwidth`` is a list of parameters, one per dataset index (analogous to ``shift``).
+    """
+
+    type: str = "conv-multi-multi-gaussian"
+
+    convwidth: list[ParameterType]
+
+    def parameter(
+        self, global_index: int, global_axis: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, bool, float]:
+        """Return IRF parameters with per-gaussian quadrature width broadening applied.
+
+        Calls the parent ``multi-multi-gaussian`` parameter() method to obtain centers,
+        scales, shift, normalization, and base widths, then replaces each width w_k with::
+
+            cwidth_k = sqrt(convwidth[global_index]^2 + w_k^2)
+        """
+        centers, widths, scales, shift, backsweep, backsweep_period = super().parameter(
+            global_index, global_axis
+        )
+        if global_index >= len(self.convwidth):
+            raise ModelError(
+                f"No convwidth parameter for index {global_index} "
+                f"({global_axis[global_index]}) in irf {self.label}"
+            )
+        convwidth_val = (
+            self.convwidth[global_index].value
+            if isinstance(self.convwidth[global_index], Parameter)
+            else float(self.convwidth[global_index])
+        )
+        widths = np.sqrt(convwidth_val**2 + widths**2)
+        return centers, widths, scales, shift, backsweep, backsweep_period
+
+
+@item
 class IrfSpectralMultiGaussian(IrfMultiGaussian):
     """
     Represents a gaussian IRF.
@@ -137,6 +337,17 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
     center_dispersion_coefficients:
         list of parameters with polynomial coefficients describing
         the dispersion of the irf center location. None for no dispersion.
+    width_dispersion_skewed_gaussian_amplitude:
+        amplitude of an additional skewed-gaussian correction term for the
+        dispersion of the irf width.
+    width_dispersion_skewed_gaussian_location:
+        location of the skewed-gaussian correction term. Interpreted on the
+        spectral axis or wavenumber axis depending on
+        ``model_dispersion_with_wavenumber``.
+    width_dispersion_skewed_gaussian_width:
+        width of the skewed-gaussian correction term.
+    width_dispersion_skewed_gaussian_skewness:
+        skewness of the skewed-gaussian correction term.
     width_dispersion_coefficients:
         list of parameters with polynomial coefficients describing
         the dispersion of the width of the irf. None for no dispersion.
@@ -144,10 +355,58 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
     """
 
     type: str = "spectral-multi-gaussian"
-    dispersion_center: ParameterType
-    center_dispersion_coefficients: list[ParameterType]
+    dispersion_center: ParameterType | None = None
+    center_dispersion_coefficients: list[ParameterType] = attribute(factory=list)
     width_dispersion_coefficients: list[ParameterType] = attribute(factory=list)
+    width_dispersion_skewed_gaussian_amplitude: ParameterType | None = None
+    width_dispersion_skewed_gaussian_location: ParameterType | None = None
+    width_dispersion_skewed_gaussian_width: ParameterType | None = None
+    width_dispersion_skewed_gaussian_skewness: ParameterType | None = None
     model_dispersion_with_wavenumber: bool = False
+
+    def _dispersion_axis_value(self, spectral_index: float) -> float:
+        return 1e3 / spectral_index if self.model_dispersion_with_wavenumber else spectral_index
+
+    def _dispersion_distance(self, spectral_index: float) -> float:
+        if self.dispersion_center is None:
+            raise ModelError(f"No dispersion center defined for irf '{self.label}'")
+        transformed_index = self._dispersion_axis_value(spectral_index)
+        transformed_center = self._dispersion_axis_value(self.dispersion_center)
+        if self.model_dispersion_with_wavenumber:
+            return transformed_index - transformed_center
+        return (transformed_index - transformed_center) / 100
+
+    def _width_dispersion_skewed_gaussian_parameters(self):
+        parameters = (
+            self.width_dispersion_skewed_gaussian_amplitude,
+            self.width_dispersion_skewed_gaussian_location,
+            self.width_dispersion_skewed_gaussian_width,
+            self.width_dispersion_skewed_gaussian_skewness,
+        )
+        if all(parameter is None for parameter in parameters):
+            return None
+        if any(parameter is None for parameter in parameters):
+            raise ModelError(
+                "The skewed-gaussian width dispersion term for "
+                f"irf '{self.label}' requires amplitude, location, width and skewness."
+            )
+        return parameters
+
+    def _skewed_gaussian(self, spectral_index: float, parameters) -> float:
+        if parameters is None:
+            return 0.0
+
+        amplitude, location, width, skewness = parameters
+        transformed_index = self._dispersion_axis_value(spectral_index)
+        if np.allclose(skewness, 0):
+            return amplitude * np.exp(
+                -np.log(2) * np.square(2 * (transformed_index - location) / width)
+            )
+
+        log_argument = 1 + (2 * skewness * (transformed_index - location) / width)
+        if log_argument <= 0:
+            return 0.0
+        return amplitude * np.exp(-np.log(2) * np.square(np.log(log_argument) / skewness))
 
     def parameter(self, global_index: int, global_axis: np.ndarray):
         """Returns the properties of the irf with shift and dispersion applied."""
@@ -157,24 +416,17 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
 
         index = global_axis[global_index] if global_index is not None else None
 
-        if self.dispersion_center is not None:
-            dist = (
-                (1e3 / index - 1e3 / self.dispersion_center)
-                if self.model_dispersion_with_wavenumber
-                else (index - self.dispersion_center) / 100
-            )
-
         if len(self.center_dispersion_coefficients) != 0:
-            if self.dispersion_center is None:
-                raise ModelError(f"No dispersion center defined for irf '{self.label}'")
+            dist = self._dispersion_distance(index)
             for i, disp in enumerate(self.center_dispersion_coefficients):
                 centers += disp * np.power(dist, i + 1)
 
         if len(self.width_dispersion_coefficients) != 0:
-            if self.dispersion_center is None:
-                raise ModelError(f"No dispersion center defined for irf '{self.label}'")
+            dist = self._dispersion_distance(index)
             for i, disp in enumerate(self.width_dispersion_coefficients):
                 widths = widths + disp * np.power(dist, i + 1)
+
+        widths += self._skewed_gaussian(index, self._width_dispersion_skewed_gaussian_parameters())
 
         return centers, widths, scale, shift, backsweep, backsweep_period
 
@@ -186,7 +438,11 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
         return np.asarray(dispersion).T
 
     def is_index_dependent(self):
-        return super().is_index_dependent() or self.dispersion_center is not None
+        return (
+            super().is_index_dependent()
+            or self.dispersion_center is not None
+            or self._width_dispersion_skewed_gaussian_parameters() is not None
+        )
 
 
 @item

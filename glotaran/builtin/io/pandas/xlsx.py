@@ -12,6 +12,8 @@ from glotaran.parameter.parameter import OPTION_NAMES_DESERIALIZED
 from glotaran.utils.io import safe_dataframe_fillna
 from glotaran.utils.io import safe_dataframe_replace
 
+DERIVED_PARAMETER_COLUMNS = ["t-value"]
+
 
 @register_project_io(["xlsx", "ods"])
 class ExcelProjectIo(ProjectIoInterface):
@@ -31,12 +33,19 @@ class ExcelProjectIo(ProjectIoInterface):
         """
         df = pd.read_excel(file_name, na_values=["None", "none"])
         df.columns = [column.lower() for column in df.columns]
+        df = df.drop(columns=DERIVED_PARAMETER_COLUMNS, errors="ignore")
         df = df.rename(columns=OPTION_NAMES_DESERIALIZED)
         safe_dataframe_fillna(df, "minimum", -np.inf)
         safe_dataframe_fillna(df, "maximum", np.inf)
         return Parameters.from_dataframe(df, source=file_name)
 
-    def save_parameters(self, parameters: Parameters, file_name: str):
+    def save_parameters(
+        self,
+        parameters: Parameters,
+        file_name: str,
+        *,
+        as_optimized: bool = False,
+    ):
         """Save a :class:`Parameters` to a Excel file.
 
         Parameters
@@ -46,7 +55,7 @@ class ExcelProjectIo(ProjectIoInterface):
         file_name : str
             File to write the parameters to.
         """
-        df = parameters.to_dataframe()
+        df = parameters.to_dataframe(as_optimized=as_optimized)
         safe_dataframe_replace(df, "minimum", -np.inf, "")
         safe_dataframe_replace(df, "maximum", np.inf, "")
         df.to_excel(file_name, na_rep="None", index=False)

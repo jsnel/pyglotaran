@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from textwrap import dedent
 
+import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
@@ -116,6 +117,33 @@ def test_save_result_yml_result_path_is_folder(tmp_path: Path, dummy_result: Res
     assert (result_folder / "result.yml").is_file()
 
     load_result(result_folder)
+
+
+def test_save_result_yml_optimized_parameters_csv_content(tmp_path: Path, dummy_result: Result):
+    result_folder = tmp_path / "testresult"
+    optimized_parameters = dummy_result.optimized_parameters.from_dataframe(
+        dummy_result.optimized_parameters.to_dataframe()
+    )
+    optimized_parameters.get("rates.species_1").standard_error = 2.0
+    optimized_parameters.get("rates.species_2").vary = False
+    optimized_parameters.get("rates.species_2").standard_error = 3.0
+    result = replace(dummy_result, optimized_parameters=optimized_parameters)
+
+    save_result(result_path=result_folder, result=result)
+
+    exported_df = pd.read_csv(result_folder / "optimized_parameters.csv", na_values=["None"])
+    assert "T-value" in exported_df.columns
+    assert exported_df.columns.tolist().index("T-value") == (
+        exported_df.columns.tolist().index("standard_error") + 1
+    )
+
+    estimated_parameter = exported_df[exported_df["label"] == "rates.species_1"].iloc[0]
+    fixed_parameter = exported_df[exported_df["label"] == "rates.species_2"].iloc[0]
+
+    assert estimated_parameter["standard_error"] == 2.0
+    assert estimated_parameter["T-value"] == pytest.approx(estimated_parameter["value"] / 2.0)
+    assert pd.isna(fixed_parameter["standard_error"])
+    assert pd.isna(fixed_parameter["T-value"])
 
 
 @pytest.mark.parametrize("path_is_absolute", (True, False))

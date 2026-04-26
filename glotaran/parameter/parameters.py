@@ -31,6 +31,17 @@ class ParameterNotFoundException(Exception):
 class Parameters:
     """A container for :class:`Parameter`."""
 
+    DATAFRAME_COLUMNS = {
+        "label",
+        "value",
+        "standard_error",
+        "expression",
+        "maximum",
+        "minimum",
+        "non_negative",
+        "vary",
+    }
+
     loader = load_parameters
 
     def __init__(self, parameters: dict[str, Parameter]):
@@ -175,9 +186,10 @@ class Parameters:
         if "expression" in df:
             expressions = df["expression"].to_list()
             df["expression"] = [expr if isinstance(expr, str) else None for expr in expressions]
+        df = df[[column for column in df.columns if column in cls.DATAFRAME_COLUMNS]]
         return cls.from_parameter_dict_list(df.to_dict(orient="records"))
 
-    def to_dataframe(self) -> pd.DataFrame:
+    def to_dataframe(self, *, as_optimized: bool = False) -> pd.DataFrame:
         """Create a pandas data frame from the group.
 
         Returns
@@ -185,7 +197,26 @@ class Parameters:
         pd.DataFrame
             The created data frame.
         """
-        return pd.DataFrame(self.to_parameter_dict_list())
+        parameter_df = pd.DataFrame(self.to_parameter_dict_list())
+        if as_optimized is not True:
+            return parameter_df
+
+        non_vary_mask = parameter_df["vary"] == False
+        parameter_df.loc[non_vary_mask, "standard_error"] = np.nan
+        standard_error_index = parameter_df.columns.get_loc("standard_error")
+        parameter_df.insert(standard_error_index + 1, "T-value", np.nan)
+
+        valid_t_value_mask = (
+            ~non_vary_mask
+            & parameter_df["standard_error"].notna()
+            & (parameter_df["standard_error"].abs() >= 1e-15)
+        )
+        parameter_df.loc[valid_t_value_mask, "T-value"] = (
+            parameter_df.loc[valid_t_value_mask, "value"]
+            / parameter_df.loc[valid_t_value_mask, "standard_error"]
+        )
+
+        return parameter_df
 
     def to_parameter_dict_list(self) -> list[dict[str, Any]]:
         """Create list of parameter dictionaries from the group.

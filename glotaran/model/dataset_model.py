@@ -195,6 +195,7 @@ class DatasetModel(ModelItem):
     )
     global_megacomplex_scale: list[ParameterType] | None = None
     scale: ParameterType | None = None
+    scale_list: list[ParameterType] | None = None
     single_amplitude_model: bool = False
 
 
