@@ -36,8 +36,8 @@ class CoherentArtifactMegacomplex(Megacomplex):
         model_axis: ArrayLike,
         **kwargs,
     ):
-        if not 1 <= self.order <= 3:
-            raise ModelError("Coherent artifact order must be between in [1,3]")
+        if not 1 <= self.order <= 5:
+            raise ModelError("Coherent artifact order must be between in [1,5]")
 
         irf = dataset_model.irf
         if irf is None:
@@ -130,4 +130,16 @@ def _calculate_coherent_artifact_matrix_on_index(matrix, center, width, axis, or
     if order > 2:
         matrix[:, 2] = (
             matrix[:, 0] * (center**2 - width**2 - 2 * center * axis + axis**2) / width**4
+        )
+
+    if order > 3:
+        matrix[:, 3] = (
+            matrix[:, 0] * ((center - axis) ** 3 - 3 * (center - axis) * width**2) / width**6
+        )
+
+    if order > 4:
+        matrix[:, 4] = (
+            matrix[:, 0]
+            * ((center - axis) ** 4 - 6 * (center - axis) ** 2 * width**2 + 3 * width**4)
+            / width**8
         )

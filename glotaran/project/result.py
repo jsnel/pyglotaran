@@ -96,11 +96,14 @@ class Result:
 
     One list per optimization group.  Each entry in the inner list is a dict with keys:
     ``source``, ``source_intervals``, ``source_area``, ``target``, ``target_intervals``,
-    ``target_area``, ``parameter``, ``weight``, ``penalty``.
+    ``target_area``, ``parameter``, ``relative``, ``weight``, ``penalty``.
 
     ``source_area`` and ``target_area`` are the sums of the CLP (SAS) values over all
-    spectral grid points that fall within the respective intervals.  The penalty
-    contribution to chi-square is ``penalty ** 2``.
+    spectral grid points that fall within the respective intervals. If ``relative`` is
+    ``False``, ``penalty`` is based on ``abs(source_area - parameter * target_area)``;
+    if ``relative`` is ``True``, it is based on
+    ``(source_area / (parameter * target_area)) - 1``. The penalty contribution to
+    chi-square is ``penalty ** 2``.
     """
 
     cost: ArrayLike | None = exclude_from_dict_field(None)
