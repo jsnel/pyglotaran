@@ -13,7 +13,8 @@ from glotaran.simulation import simulate
 
 @pytest.mark.parametrize("index_dependent", [True, False])
 @pytest.mark.parametrize("link_clp", [True, False])
-def test_penalties(index_dependent, link_clp):
+@pytest.mark.parametrize("relative", [True, False])
+def test_penalties(index_dependent, link_clp, relative):
     model = deepcopy(suite.model)
     model.dataset_groups["default"].link_clp = link_clp
     model.megacomplex["m1"].is_index_dependent = index_dependent
@@ -26,6 +27,7 @@ def test_penalties(index_dependent, link_clp):
                 "target_intervals": [(20, 45)],
                 "parameter": "3",
                 "weight": 10,
+                "relative": relative,
             }
         )
     )
@@ -44,11 +46,26 @@ def test_penalties(index_dependent, link_clp):
     optimization_group = OptimizationGroup(scheme, model.get_dataset_groups()["default"])
     optimization_group.calculate(parameters)
     additional_penalty = optimization_group.get_additional_penalties()
+    additional_penalty_areas = optimization_group.get_additional_penalty_areas()
     full_penalty = optimization_group.get_full_penalty()
 
     assert isinstance(additional_penalty, list)
     assert len(additional_penalty) == 1
     assert additional_penalty[0] != 0
+    assert len(additional_penalty_areas) == 1
+    assert additional_penalty_areas[0]["relative"] is relative
+
+    source_area = additional_penalty_areas[0]["source_area"]
+    target_area = additional_penalty_areas[0]["target_area"]
+    parameter = additional_penalty_areas[0]["parameter"]
+    weight = additional_penalty_areas[0]["weight"]
+
+    if relative:
+        expected_penalty = ((source_area / (parameter * target_area)) - 1.0) * weight
+    else:
+        expected_penalty = abs(source_area - parameter * target_area) * weight
+    assert additional_penalty[0] == pytest.approx(expected_penalty)
+
     assert isinstance(full_penalty, np.ndarray)
     assert full_penalty.size == (suite.model_axis.size * global_axis.size) + len(
         additional_penalty

@@ -28,6 +28,7 @@ def residual_nnls(matrix: ArrayLike, data: ArrayLike) -> tuple[ArrayLike, ArrayL
     tuple[ArrayLike, ArrayLike]
         The clps and the residual.
     """
-    clp, _ = nnls(matrix, data)
+    nnls_maxiter = 6 * np.asarray(matrix).shape[1]
+    clp, _ = nnls(matrix, data, maxiter=nnls_maxiter)
     residual = data - np.dot(matrix, clp)
     return clp, residual

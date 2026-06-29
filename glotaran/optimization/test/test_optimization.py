@@ -312,3 +312,33 @@ def test_optimization_scale_list(link_clp):
     result_scale = result.data["dataset1"].attrs["dataset_scale_list"]
     assert isinstance(result_scale, list)
     assert np.allclose(result_scale, suite.scale)
+
+
+def test_optimization_dataset_scale_list_serializable_without_scale_list():
+    """Store dataset_scale_list as an empty list when no per-wavelength scale list exists."""
+    suite = OneCompartmentDecay
+
+    model = suite.model
+    model.megacomplex["m1"].is_index_dependent = False
+
+    sim_model = suite.sim_model
+    sim_model.megacomplex["m1"].is_index_dependent = False
+
+    data = simulate(
+        sim_model,
+        "dataset1",
+        suite.wanted_parameters,
+        {"global": suite.global_axis, "model": suite.model_axis},
+    )
+
+    scheme = Scheme(
+        model=model,
+        parameters=suite.initial_parameters,
+        data={"dataset1": data},
+        maximum_number_function_evaluations=5,
+        clp_link_tolerance=0.1,
+    )
+
+    result = optimize(scheme, raise_exception=True)
+    assert result.success
+    assert result.data["dataset1"].attrs["dataset_scale_list"] == []

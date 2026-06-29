@@ -165,7 +165,7 @@ class EstimationProvider:
         -------
         list[dict]
             One dict per penalty with keys: source, source_intervals, source_area,
-            target, target_intervals, target_area, parameter, weight, penalty.
+            target, target_intervals, target_area, parameter, relative, weight, penalty.
         """
         return self._clp_penalty_areas
 
@@ -191,7 +191,7 @@ class EstimationProvider:
         tuple[list[float], list[dict]]
             A pair of (penalty_values, area_info).  Each entry in area_info is a dict
             with keys: source, source_intervals, source_area, target, target_intervals,
-            target_area, parameter, weight, penalty.
+            target_area, parameter, relative, weight, penalty.
         """
         model = self.group.model
         parameters = self.group.parameters
@@ -233,7 +233,20 @@ class EstimationProvider:
             source_sum = float(np.sum(source_area))
             target_sum = float(np.sum(target_area))
             parameter_value = float(penalty.parameter)
-            area_penalty = np.abs(source_sum - parameter_value * target_sum)
+            target_scaled = parameter_value * target_sum
+
+            if penalty.relative:
+                if np.isclose(target_scaled, 0):
+                    warnings.warn(
+                        "Falling back to absolute equal area penalty in relative mode, "
+                        f"parameter * target area is zero for target clp {penalty.target}."
+                    )
+                    area_penalty = np.abs(source_sum - target_scaled)
+                else:
+                    area_penalty = source_sum / target_scaled - 1.0
+            else:
+                area_penalty = np.abs(source_sum - target_scaled)
+
             penalty_value = float(area_penalty * penalty.weight)
 
             penalties.append(penalty_value)
@@ -246,6 +259,7 @@ class EstimationProvider:
                     "target_intervals": list(penalty.target_intervals),
                     "target_area": target_sum,
                     "parameter": parameter_value,
+                    "relative": bool(penalty.relative),
                     "weight": float(penalty.weight),
                     "penalty": penalty_value,
                 }

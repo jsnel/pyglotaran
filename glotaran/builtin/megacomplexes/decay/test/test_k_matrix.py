@@ -4,6 +4,7 @@ from IPython.core.formatters import format_display_data
 
 from glotaran.builtin.megacomplexes.decay.k_matrix import KMatrix
 from glotaran.builtin.megacomplexes.decay.k_matrix import calculate_gamma
+from glotaran.builtin.megacomplexes.decay.k_matrix import format_markdown_number
 from glotaran.model.item import fill_item
 from glotaran.parameter import Parameters
 
