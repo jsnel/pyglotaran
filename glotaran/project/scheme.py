@@ -67,13 +67,84 @@ class Scheme:
     def validate(self) -> MarkdownStr:
         """Return a string listing all problems in the model and missing parameters.
 
+        In addition to the model/parameter cross-reference check performed by
+        ``Model.validate``, this method also detects:
+
+        * **Double declarations** – the same label appearing more than once in
+          the source CSV file (silently overwritten during loading, the second
+          value wins without warning).
+        * **Initial guess outside declared bounds** – any parameter whose
+          ``value`` is strictly below its ``minimum`` or above its ``maximum``
+          (which would raise a ``ValueError`` inside ``optimize()``).
+
         Returns
         -------
         MarkdownStr
-            A user-friendly string containing all the problems of a model if any.
-            Defaults to 'Your model is valid.' if no problems are found.
+            A user-friendly string when no problems are found.
+
+        Raises
+        ------
+        ValueError
+            Raised when any parameter problem is detected (double declaration
+            or initial guess outside bounds), so that execution stops before
+            ``optimize()`` is called.
         """
-        return self.model.validate(self.parameters)
+        import csv
+        import math
+        import pathlib
+        from collections import Counter
+
+        result = str(self.model.validate(self.parameters))
+        parameter_issues: list[str] = []
+
+        # --- Double declaration: re-read the source CSV to count raw labels ---
+        source_path = getattr(self.parameters, "source_path", None)
+        if source_path is not None:
+            csv_path = pathlib.Path(source_path)
+            if csv_path.suffix.lower() == ".csv":
+                try:
+                    with open(csv_path, newline="", encoding="utf-8") as fh:
+                        raw_labels = [
+                            row["label"].strip()
+                            for row in csv.DictReader(fh)
+                            if row.get("label", "").strip()
+                        ]
+                    for lbl, cnt in sorted(Counter(raw_labels).items()):
+                        if cnt > 1:
+                            parameter_issues.append(
+                                f"Parameter '{lbl}' is declared {cnt} times" f" in '{csv_path}'"
+                            )
+                except (OSError, KeyError):
+                    pass  # file not accessible – skip duplicate check
+
+        # --- Out-of-bounds initial guess ---
+        for param in self.parameters.all():
+            val = param.value
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                continue
+            mn = param.minimum if not math.isinf(param.minimum) else None
+            mx = param.maximum if not math.isinf(param.maximum) else None
+            if mn is not None and val < mn:
+                parameter_issues.append(
+                    f"Parameter '{param.label}' initial value {val:.6g}"
+                    f" is below its minimum {mn:.6g}"
+                )
+            if mx is not None and val > mx:
+                parameter_issues.append(
+                    f"Parameter '{param.label}' initial value {val:.6g}"
+                    f" exceeds its maximum {mx:.6g}"
+                )
+
+        if parameter_issues:
+            n = len(parameter_issues)
+            problems = "\n".join(f"  * {issue}" for issue in parameter_issues)
+            raise ValueError(
+                f"Scheme.validate() found {n} parameter"
+                f" problem{'s' if n > 1 else ''} -"
+                f" fix before calling optimize():\n{problems}"
+            )
+
+        return MarkdownStr(result)
 
     def valid(self) -> bool:
         """Check if there are no problems with the model or the parameters.

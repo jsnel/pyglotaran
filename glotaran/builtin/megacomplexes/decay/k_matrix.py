@@ -15,6 +15,21 @@ from glotaran.model import item
 from glotaran.utils.ipython import MarkdownStr
 
 
+def format_markdown_number(value: float | int) -> str:
+    """Format numbers compactly for markdown tables.
+
+    The formatting keeps integer-like values compact, preserves useful precision
+    for regular decimals, and uses scientific notation for very small values.
+    """
+    if not np.isfinite(value):
+        return str(value)
+
+    if abs(value - int(value)) <= np.finfo(np.float64).eps:
+        return str(int(value))
+
+    return f"{value:.5g}"
+
+
 def calculate_gamma(eigenvectors: np.ndarray, initial_concentration: np.ndarray) -> np.ndarray:
     return np.diag(solve(eigenvectors, initial_concentration))
 
@@ -128,7 +143,7 @@ class KMatrix(ModelItem):
     @staticmethod
     def _array_as_markdown(array, row_header, column_header) -> MarkdownStr:
         markdown = "| compartment | " + " | ".join(
-            e if isinstance(e, str) else f"{e:.4e}" for e in column_header
+            e if isinstance(e, str) else format_markdown_number(e) for e in column_header
         )
 
         markdown += "\n|"
@@ -139,9 +154,11 @@ class KMatrix(ModelItem):
             markdown += (
                 f"| {row_header[i]} | "
                 if isinstance(row_header[i], str)
-                else f"| {row_header[i]:.4e} | "
+                else f"| {format_markdown_number(row_header[i])} | "
             )
-            markdown += " | ".join(e if isinstance(e, str) else f"{e:.4e}" for e in row)
+            markdown += " | ".join(
+                e if isinstance(e, str) else format_markdown_number(e) for e in row
+            )
 
             markdown += "|\n"
 

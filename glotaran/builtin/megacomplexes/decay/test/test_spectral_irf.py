@@ -4,6 +4,7 @@ from textwrap import dedent
 import numpy as np
 import pytest
 from attrs import evolve
+from scipy.interpolate import CubicSpline
 
 from glotaran.io import load_model
 from glotaran.io import load_parameters
@@ -98,6 +99,32 @@ irf:
         model_dispersion_with_wavenumber: true
 """
 
+MODEL_SPLINE_IRF_WIDTH_DISPERSION = f"""\
+{MODEL_BASE}
+irf:
+    irf1:
+        type: spectral-gaussian
+        center: irf.center
+        width: irf.width
+        dispersion_center: irf.dispersion_center
+        width_dispersion_spline_knots: [300.0, 400.0, 500.0]
+        width_dispersion_spline_values: [irf.wds1, irf.wds2, irf.wds3]
+"""
+
+MODEL_SPLINE_IRF_WIDTH_DISPERSION_WAVENUMBER_FROM_WAVELENGTH_KNOTS = f"""\
+{MODEL_BASE}
+irf:
+    irf1:
+        type: spectral-gaussian
+        center: irf.center
+        width: irf.width
+        dispersion_center: irf.dispersion_center
+        model_dispersion_with_wavenumber: true
+        width_dispersion_spline_knots_in_wavelength: true
+        width_dispersion_spline_knots: [300.0, 400.0, 500.0]
+        width_dispersion_spline_values: [irf.wds1, irf.wds2, irf.wds3]
+"""
+
 MODEL_MULTIPULSE_IRF_DISPERSION = f"""\
 {MODEL_BASE}
 irf:
@@ -164,6 +191,17 @@ MODEL_CONV_MULTI_MULTI_GAUSSIAN_IRF = f"""\
 irf:
     irf1:
         type: conv-multi-multi-gaussian
+        convwidth: [irf.convwidth]
+        center: [[irf.center1, irf.center2], [irf.center3]]
+        width: [[irf.width1, irf.width2], [irf.width3]]
+        scale: [[irf.scale1, irf.scale2], [irf.scale3]]
+"""
+
+MODEL_NORM_CONV_MULTI_MULTI_GAUSSIAN_IRF = f"""\
+{MODEL_BASE}
+irf:
+    irf1:
+        type: norm-conv-multi-multi-gaussian
         convwidth: [irf.convwidth]
         center: [[irf.center1, irf.center2], [irf.center3]]
         width: [[irf.width1, irf.width2], [irf.width3]]
@@ -252,6 +290,17 @@ irf:
     - ["sgs", -0.25]
 """
 
+PARAMETERS_SPLINE_IRF_WIDTH_DISPERSION = f"""\
+{PARAMETERS_BASE}
+irf:
+    - ["center", 0.3]
+    - ["width", 0.1]
+    - ["dispersion_center", 400, {{"vary": False}}]
+    - ["wds1", 0.02]
+    - ["wds2", 0.03]
+    - ["wds3", 0.05]
+"""
+
 PARAMETERS_MULTIPULSE_IRF_DISPERSION = f"""\
 {PARAMETERS_BASE}
 irf:
@@ -302,6 +351,9 @@ def _calculate_irf_width(
     width_dispersion_coefficients=None,
     skewed_gaussian_parameters=None,
     model_dispersion_with_wavenumber=False,
+    width_dispersion_spline_knots=None,
+    width_dispersion_spline_values=None,
+    width_dispersion_spline_knots_in_wavelength=False,
 ):
     if width_dispersion_coefficients is None:
         width_dispersion_coefficients = []
@@ -312,6 +364,18 @@ def _calculate_irf_width(
             distance = (index - dispersion_center) / 100
         for i, coefficient in enumerate(width_dispersion_coefficients):
             irf_width += coefficient * np.power(distance, i + 1)
+    if width_dispersion_spline_knots and width_dispersion_spline_values:
+        transformed_index = 1e3 / index if model_dispersion_with_wavenumber else index
+        knots = np.asarray([float(knot) for knot in width_dispersion_spline_knots])
+        values = np.asarray([float(value) for value in width_dispersion_spline_values])
+        if width_dispersion_spline_knots_in_wavelength and model_dispersion_with_wavenumber:
+            knots = 1e3 / knots
+        order = np.argsort(knots)
+        knots = knots[order]
+        values = values[order]
+        irf_width += float(
+            CubicSpline(knots, values, bc_type="natural")(transformed_index)
+        )
     if skewed_gaussian_parameters is not None:
         amplitude, location, skew_width, skewness = skewed_gaussian_parameters
         transformed_index = 1e3 / index if model_dispersion_with_wavenumber else index
@@ -495,6 +559,70 @@ def test_spectral_irf_skewed_gaussian_width_dispersion(model_text, parameter_tex
     assert np.allclose(widths, expected)
 
 
+def test_spectral_irf_spline_width_dispersion():
+    model = load_model(MODEL_SPLINE_IRF_WIDTH_DISPERSION, format_name="yml_str")
+    parameters = load_parameters(PARAMETERS_SPLINE_IRF_WIDTH_DISPERSION, format_name="yml_str")
+
+    irf = fill_item(model.irf["irf1"], model, parameters)
+    spectral_axis = np.asarray([320.0, 400.0, 470.0])
+    widths = np.asarray(
+        [irf.parameter(index, spectral_axis)[1][0] for index, _ in enumerate(spectral_axis)]
+    )
+
+    expected = np.asarray(
+        [
+            _calculate_irf_width(
+                spectral_value,
+                irf.width,
+                irf.dispersion_center,
+                irf.width_dispersion_coefficients,
+                model_dispersion_with_wavenumber=irf.model_dispersion_with_wavenumber,
+                width_dispersion_spline_knots=irf.width_dispersion_spline_knots,
+                width_dispersion_spline_values=irf.width_dispersion_spline_values,
+            )
+            for spectral_value in spectral_axis
+        ]
+    )
+
+    assert irf.is_index_dependent()
+    assert np.allclose(widths, expected)
+
+
+def test_spectral_irf_spline_width_dispersion_wavenumber_from_wavelength_knots():
+    model = load_model(
+        MODEL_SPLINE_IRF_WIDTH_DISPERSION_WAVENUMBER_FROM_WAVELENGTH_KNOTS,
+        format_name="yml_str",
+    )
+    parameters = load_parameters(PARAMETERS_SPLINE_IRF_WIDTH_DISPERSION, format_name="yml_str")
+
+    irf = fill_item(model.irf["irf1"], model, parameters)
+    spectral_axis = np.asarray([320.0, 400.0, 470.0])
+    widths = np.asarray(
+        [irf.parameter(index, spectral_axis)[1][0] for index, _ in enumerate(spectral_axis)]
+    )
+
+    expected = np.asarray(
+        [
+            _calculate_irf_width(
+                spectral_value,
+                irf.width,
+                irf.dispersion_center,
+                irf.width_dispersion_coefficients,
+                model_dispersion_with_wavenumber=irf.model_dispersion_with_wavenumber,
+                width_dispersion_spline_knots=irf.width_dispersion_spline_knots,
+                width_dispersion_spline_values=irf.width_dispersion_spline_values,
+                width_dispersion_spline_knots_in_wavelength=(
+                    irf.width_dispersion_spline_knots_in_wavelength
+                ),
+            )
+            for spectral_value in spectral_axis
+        ]
+    )
+
+    assert irf.is_index_dependent()
+    assert np.allclose(widths, expected)
+
+
 def test_spectral_irf_with_width_skewed_gaussian_dispersion_runs():
     model = SkewedGaussianIrfWidthDispersion.model
     parameters = SkewedGaussianIrfWidthDispersion.parameters
@@ -597,3 +725,22 @@ def test_conv_multi_multi_gaussian_irf_width_broadening():
     # so the area after broadening is larger than normarea; just check shape and positivity.
     assert len(scales_conv) == 3
     assert np.all(scales_conv > 0)
+    assert np.sum(scales_conv * np.abs(widths_conv)) * np.sqrt(2 * np.pi) > irf.normarea
+
+
+def test_norm_conv_multi_multi_gaussian_irf_true_area_normalization():
+    """norm-conv-multi-multi-gaussian normalizes using broadened (true) widths."""
+    model = load_model(MODEL_NORM_CONV_MULTI_MULTI_GAUSSIAN_IRF, format_name="yml_str")
+    parameters = load_parameters(PARAMETERS_CONV_MULTI_MULTI_GAUSSIAN_IRF, format_name="yml_str")
+    irf = fill_item(model.irf["irf1"], model, parameters)
+
+    _, widths_conv, scales_conv, *_ = irf.parameter(0, np.asarray([400.0]))
+
+    base_widths = np.asarray([0.10, 0.20, 0.40])
+    convwidth_val = 0.05
+    expected_widths = np.sqrt(convwidth_val**2 + base_widths**2)
+
+    assert np.allclose(widths_conv, expected_widths)
+    assert np.allclose(
+        np.sum(scales_conv * np.abs(widths_conv)) * np.sqrt(2 * np.pi), irf.normarea
+    )

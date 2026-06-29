@@ -107,7 +107,7 @@ class OptimizationGroup:
         -------
         list[dict]
             One dict per penalty with keys: source, source_intervals, source_area,
-            target, target_intervals, target_area, parameter, weight, penalty.
+            target, target_intervals, target_area, parameter, relative, weight, penalty.
         """
         return self._estimation_provider.get_additional_penalty_areas()
 
@@ -212,7 +212,7 @@ class OptimizationGroup:
             result_dataset.attrs["dataset_scale_list"] = (
                 [p.value for p in _scale_list]  # type:ignore[union-attr]
                 if _scale_list is not None
-                else None
+                else []
             )
 
             # reconstruct fitted data

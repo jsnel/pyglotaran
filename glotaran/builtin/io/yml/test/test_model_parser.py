@@ -75,6 +75,7 @@ def test_penalties(model):
     assert eac.target_intervals == [[670, 810]]
     assert eac.parameter == "55"
     assert eac.weight == 0.0016
+    assert eac.relative is False
 
 
 def test_relations(model):

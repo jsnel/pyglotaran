@@ -29,3 +29,4 @@ class EqualAreaPenalty(ClpPenalty):
     target_intervals: list[tuple[float, float]]
     parameter: ParameterType
     weight: float
+    relative: bool = False

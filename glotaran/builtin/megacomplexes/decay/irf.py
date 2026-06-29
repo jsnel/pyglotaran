@@ -1,6 +1,7 @@
 """This package contains irf items."""
 
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 from glotaran.model import ModelError
 from glotaran.model import ModelItemTyped
@@ -315,6 +316,47 @@ class IrfConvMultiMultiGaussian(IrfMultiMultiGaussian):
 
 
 @item
+class IrfNormConvMultiMultiGaussian(IrfConvMultiMultiGaussian):
+    """Represents a convolved multi-multi-gaussian IRF with true-area normalization.
+
+    This type is backward-compatible with ``conv-multi-multi-gaussian`` in terms of
+    width broadening, but area normalization is applied using the broadened widths:
+
+        cwidth_k = sqrt(convwidth[global_index]^2 + width_k^2)
+        area = sum_k(scale_k * |cwidth_k|) * sqrt(2*pi)
+
+    Existing ``conv-multi-multi-gaussian`` keeps the previous behavior where
+    normalization happens in the parent class before convwidth broadening.
+    """
+
+    type: str = "norm-conv-multi-multi-gaussian"
+
+    def parameter(
+        self, global_index: int, global_axis: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, bool, float]:
+        """Return broadened IRF parameters with normalization on true broadened area."""
+        centers, widths, scales, shift, backsweep, backsweep_period = super().parameter(
+            global_index, global_axis
+        )
+
+        if self.normalize_area and self.normalize:
+            total_area = float(np.sum(scales * np.abs(widths)) * np.sqrt(2 * np.pi))
+            if not np.isfinite(self.normarea) or self.normarea <= 0:
+                raise ModelError(
+                    f"Cannot normalize norm-conv-multi-multi-gaussian irf '{self.label}': "
+                    f"non-finite or non-positive normarea {self.normarea}."
+                )
+            if not np.isfinite(total_area) or total_area <= 0:
+                raise ModelError(
+                    f"Cannot normalize norm-conv-multi-multi-gaussian irf '{self.label}': "
+                    f"non-finite or non-positive total area {total_area}."
+                )
+            scales = scales * (self.normarea / total_area)
+
+        return centers, widths, scales, shift, backsweep, backsweep_period
+
+
+@item
 class IrfSpectralMultiGaussian(IrfMultiGaussian):
     """
     Represents a gaussian IRF.
@@ -351,6 +393,15 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
     width_dispersion_coefficients:
         list of parameters with polynomial coefficients describing
         the dispersion of the width of the irf. None for no dispersion.
+    width_dispersion_spline_knots:
+        spline knot positions on the spectral axis or wavenumber axis depending
+        on ``model_dispersion_with_wavenumber``.
+    width_dispersion_spline_knots_in_wavelength:
+        if ``True``, spline knots are interpreted as wavelength and converted
+        internally to wavenumber only when ``model_dispersion_with_wavenumber``
+        is ``True``.
+    width_dispersion_spline_values:
+        width values at the spline knots.
 
     """
 
@@ -358,6 +409,10 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
     dispersion_center: ParameterType | None = None
     center_dispersion_coefficients: list[ParameterType] = attribute(factory=list)
     width_dispersion_coefficients: list[ParameterType] = attribute(factory=list)
+    # width_dispersion_spline_knots: list[float] = attribute(factory=list)
+    width_dispersion_spline_knots: list[ParameterType] = attribute(factory=list)
+    width_dispersion_spline_knots_in_wavelength: bool = False
+    width_dispersion_spline_values: list[ParameterType] = attribute(factory=list)
     width_dispersion_skewed_gaussian_amplitude: ParameterType | None = None
     width_dispersion_skewed_gaussian_location: ParameterType | None = None
     width_dispersion_skewed_gaussian_width: ParameterType | None = None
@@ -408,6 +463,40 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
             return 0.0
         return amplitude * np.exp(-np.log(2) * np.square(np.log(log_argument) / skewness))
 
+    def _evaluate_width_spline(self, spectral_index: float | None) -> float:
+        if (
+            spectral_index is None
+            or not self.width_dispersion_spline_knots
+            or not self.width_dispersion_spline_values
+        ):
+            return 0.0
+
+        if len(self.width_dispersion_spline_knots) != len(self.width_dispersion_spline_values):
+            raise ModelError(
+                f"Spline definition error in '{self.label}': Number of knots "
+                f"({len(self.width_dispersion_spline_knots)}) must match number of values "
+                f"({len(self.width_dispersion_spline_values)})."
+            )
+
+        knots = np.asarray([float(knot) for knot in self.width_dispersion_spline_knots])
+        values = np.asarray([float(value) for value in self.width_dispersion_spline_values])
+
+        if self.width_dispersion_spline_knots_in_wavelength and self.model_dispersion_with_wavenumber:
+            knots = 1e3 / knots
+
+        order = np.argsort(knots)
+        knots = knots[order]
+        values = values[order]
+
+        if np.any(np.diff(knots) <= 0):
+            raise ModelError(
+                f"Spline definition error in '{self.label}': Knot positions must be "
+                "strictly increasing after optional unit conversion."
+            )
+
+        spline = CubicSpline(knots, values, bc_type="natural")
+        return float(spline(self._dispersion_axis_value(spectral_index)))
+
     def parameter(self, global_index: int, global_axis: np.ndarray):
         """Returns the properties of the irf with shift and dispersion applied."""
         centers, widths, scale, shift, backsweep, backsweep_period = super().parameter(
@@ -426,6 +515,9 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
             for i, disp in enumerate(self.width_dispersion_coefficients):
                 widths = widths + disp * np.power(dist, i + 1)
 
+        if self.width_dispersion_spline_values:
+            widths += self._evaluate_width_spline(index)
+
         widths += self._skewed_gaussian(index, self._width_dispersion_skewed_gaussian_parameters())
 
         return centers, widths, scale, shift, backsweep, backsweep_period
@@ -441,6 +533,7 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
         return (
             super().is_index_dependent()
             or self.dispersion_center is not None
+            or bool(self.width_dispersion_spline_values)
             or self._width_dispersion_skewed_gaussian_parameters() is not None
         )
 

@@ -110,6 +110,38 @@ class ParameterIssue(ItemIssue):
         return f"Missing parameter with label '{self._label}'."
 
 
+class DuplicateParameterIssue(ItemIssue):
+    """Issue for duplicate parameter labels in parameter source file."""
+
+    def __init__(self, label: str, count: int, source_path: str):
+        """Create a duplicate parameter issue.
+
+        Parameters
+        ----------
+        label : str
+            The parameter label.
+        count : int
+            The number of times the label appears.
+        source_path : str
+            The path to the parameter source file.
+        """
+        self._label = label
+        self._count = count
+        self._source_path = source_path
+
+    def to_string(self) -> str:
+        """Get the issue as string.
+
+        Returns
+        -------
+        str
+        """
+        return (
+            f"Parameter '{self._label}' is declared {self._count} times"
+            f" in '{self._source_path}'"
+        )
+
+
 @define(kw_only=True, slots=False)
 class Item:
     """A baseclass for items."""
