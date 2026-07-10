@@ -166,6 +166,15 @@ def test_global_items():
                     "weight": 1,
                 }
             ],
+            "parameter_penalties": [
+                {
+                    "type": "equal",
+                    "source": "k.1",
+                    "target": "k.2",
+                    "parameter": "equal.1",
+                    "weight": 10,
+                }
+            ],
             "clp_constraints": [
                 {
                     "type": "only",
@@ -194,6 +203,7 @@ def test_global_items():
         }
     )
     print(m)
+    assert len(m.parameter_penalties) == 1
     assert len(m.weights) == 2
     w = m.weights[0]
     assert w.datasets == ["d1", "d2"]
@@ -260,8 +270,10 @@ def test_model_as_dict():
                 "target_intervals": [(1, 2)],
                 "parameter": "p",
                 "weight": 1,
+                "relative": False,
             }
         ],
+        "parameter_penalties": [],
         "clp_constraints": [
             {"type": "only", "target": "t", "interval": [(1, 2)]},
             {"type": "zero", "target": "t", "interval": (1, 2)},

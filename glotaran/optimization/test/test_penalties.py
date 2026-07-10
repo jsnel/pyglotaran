@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from glotaran.model import EqualAreaPenalty
+from glotaran.model import EqualParameterPenalty
 from glotaran.optimization.optimization_group import OptimizationGroup
 from glotaran.optimization.test.suites import TwoCompartmentDecay as suite
 from glotaran.parameter import Parameters
@@ -25,13 +26,23 @@ def test_penalties(index_dependent, link_clp, relative):
                 "source_intervals": [(1, 20)],
                 "target": "s2",
                 "target_intervals": [(20, 45)],
-                "parameter": "3",
+                "parameter": "equal.1",
                 "weight": 10,
                 "relative": relative,
             }
         )
     )
-    parameters = Parameters.from_list([11e-4, 22e-5, 2])
+    model.parameter_penalties.append(
+        EqualParameterPenalty(
+            **{
+                "source": "1",
+                "target": "2",
+                "parameter": "equal.1",
+                "weight": 10,
+            }
+        )
+    )
+    parameters = Parameters.from_list([11e-4, 22e-5, [1, "equal.1", {"vary": False}]])
 
     global_axis = np.arange(50)
 
@@ -46,14 +57,23 @@ def test_penalties(index_dependent, link_clp, relative):
     optimization_group = OptimizationGroup(scheme, model.get_dataset_groups()["default"])
     optimization_group.calculate(parameters)
     additional_penalty = optimization_group.get_additional_penalties()
+    additional_parameter_penalty = optimization_group.get_additional_parameter_penalties()
     additional_penalty_areas = optimization_group.get_additional_penalty_areas()
     full_penalty = optimization_group.get_full_penalty()
 
     assert isinstance(additional_penalty, list)
     assert len(additional_penalty) == 1
     assert additional_penalty[0] != 0
+    assert len(additional_parameter_penalty) == 2
     assert len(additional_penalty_areas) == 1
     assert additional_penalty_areas[0]["relative"] is relative
+
+    sqrt_weight = np.sqrt(10)
+    expected_parameter_penalty = [
+        sqrt_weight * ((11e-4) / (1 * 22e-5) - 1.0),
+        sqrt_weight * ((1 * 22e-5) / (11e-4) - 1.0),
+    ]
+    assert additional_parameter_penalty == pytest.approx(expected_parameter_penalty)
 
     source_area = additional_penalty_areas[0]["source_area"]
     target_area = additional_penalty_areas[0]["target_area"]
@@ -69,7 +89,7 @@ def test_penalties(index_dependent, link_clp, relative):
     assert isinstance(full_penalty, np.ndarray)
     assert full_penalty.size == (suite.model_axis.size * global_axis.size) + len(
         additional_penalty
-    )
+    ) + len(additional_parameter_penalty)
 
     # 2 compartments * 50 items in global axis
     assert optimization_group.number_of_clps == 100
