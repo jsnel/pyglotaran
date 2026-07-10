@@ -19,4 +19,6 @@ from glotaran.model.megacomplex import Megacomplex
 from glotaran.model.megacomplex import megacomplex
 from glotaran.model.model import Model
 from glotaran.model.model import ModelError
+from glotaran.model.parameter_penalties import EqualParameterPenalty
+from glotaran.model.parameter_penalties import ParameterPenalty
 from glotaran.model.weight import Weight

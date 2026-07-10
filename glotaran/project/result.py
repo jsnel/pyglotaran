@@ -91,6 +91,9 @@ class Result:
     additional_penalty: list[np.ndarray] | None = exclude_from_dict_field(None)
     """A vector with the value for each additional penalty, or None"""
 
+    additional_parameter_penalty: list[np.ndarray] | None = exclude_from_dict_field(None)
+    """A vector with the value for each additional parameter penalty, or None."""
+
     additional_penalty_areas: list[list[dict]] | None = exclude_from_dict_field(None)
     """Area breakdown for each equal-area CLP penalty, or None.
 
@@ -271,6 +274,12 @@ class Result:
             len(penalty) != 0 for penalty in self.additional_penalty
         ):
             general_table_rows.append(["RMSE additional penalty", self.additional_penalty])
+        if self.additional_parameter_penalty is not None and any(
+            len(penalty) != 0 for penalty in self.additional_parameter_penalty
+        ):
+            general_table_rows.append(
+                ["RMSE additional parameter penalty", self.additional_parameter_penalty]
+            )
 
         result_table = tabulate(
             general_table_rows,

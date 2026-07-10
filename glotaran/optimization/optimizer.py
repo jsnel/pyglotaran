@@ -274,6 +274,9 @@ class Optimizer:
         result_args["additional_penalty"] = [
             group.get_additional_penalties() for group in self._optimization_groups
         ]
+        result_args["additional_parameter_penalty"] = [
+            group.get_additional_parameter_penalties() for group in self._optimization_groups
+        ]
         result_args["additional_penalty_areas"] = [
             group.get_additional_penalty_areas() for group in self._optimization_groups
         ]

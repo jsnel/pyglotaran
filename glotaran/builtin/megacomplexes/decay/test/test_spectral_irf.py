@@ -373,9 +373,7 @@ def _calculate_irf_width(
         order = np.argsort(knots)
         knots = knots[order]
         values = values[order]
-        irf_width += float(
-            CubicSpline(knots, values, bc_type="natural")(transformed_index)
-        )
+        irf_width += float(CubicSpline(knots, values, bc_type="natural")(transformed_index))
     if skewed_gaussian_parameters is not None:
         amplitude, location, skew_width, skewness = skewed_gaussian_parameters
         transformed_index = 1e3 / index if model_dispersion_with_wavenumber else index

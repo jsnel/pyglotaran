@@ -39,6 +39,7 @@ from glotaran.model.item import iterate_parameter_names_and_labels
 from glotaran.model.item import model_attributes
 from glotaran.model.item import strip_type_and_structure_from_attribute
 from glotaran.model.megacomplex import Megacomplex
+from glotaran.model.parameter_penalties import ParameterPenalty
 from glotaran.model.weight import Weight
 from glotaran.parameter import Parameter
 from glotaran.parameter import Parameters
@@ -229,6 +230,7 @@ class Model:
 
     source_path: str | None = ib(default=None, init=False, repr=False)
     clp_penalties: list[ClpPenalty] = _global_item_attribute(ClpPenalty)
+    parameter_penalties: list[ParameterPenalty] = _global_item_attribute(ParameterPenalty)
     clp_constraints: list[ClpConstraint] = _global_item_attribute(ClpConstraint)
     clp_relations: list[ClpRelation] = _global_item_attribute(ClpRelation)
 

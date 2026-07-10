@@ -309,9 +309,15 @@ def test_optimization_scale_list(link_clp):
             )
 
     # Check that dataset_scale_list stores the list of per-wavelength scale values.
-    result_scale = result.data["dataset1"].attrs["dataset_scale_list"]
+    result_data = result.data["dataset1"]
+    result_scale = result_data.attrs["dataset_scale_list"]
     assert isinstance(result_scale, list)
     assert np.allclose(result_scale, suite.scale)
+
+    # The stored matrix must reflect the same per-wavelength scaling used during the solve.
+    # This should apply each scale exactly once, not quadratically.
+    assert result_data.matrix.dims == ("global", "model", "clp_label")
+    assert np.allclose(result_data.matrix.isel(model=0, clp_label=0).values, suite.scale)
 
 
 def test_optimization_dataset_scale_list_serializable_without_scale_list():
