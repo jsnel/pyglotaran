@@ -10,6 +10,7 @@ import xarray as xr
 from glotaran.io.prepare_dataset import add_svd_to_dataset
 from glotaran.model import DatasetGroup
 from glotaran.model.dataset_model import finalize_dataset_model
+from glotaran.model.dataset_model import has_dataset_model_global_model
 from glotaran.optimization.data_provider import DataProvider
 from glotaran.optimization.data_provider import DataProviderLinked
 from glotaran.optimization.estimation_provider import EstimationProvider
@@ -100,6 +101,16 @@ class OptimizationGroup:
         """
         return self._estimation_provider.get_additional_penalties()
 
+    def get_additional_parameter_penalties(self) -> list[float]:
+        """Get additional parameter penalties.
+
+        Returns
+        -------
+        list[float]
+            The additional parameter penalties.
+        """
+        return self._estimation_provider.get_additional_parameter_penalties()
+
     def get_additional_penalty_areas(self) -> list[dict]:
         """Get the area breakdown for each equal-area CLP penalty.
 
@@ -141,6 +152,47 @@ class OptimizationGroup:
                 weight = weight.T
             result_dataset["weight"] = (result_dataset.data.dims, weight)
 
+    @staticmethod
+    def _scale_result_matrix(
+        dataset_model,
+        matrix: xr.DataArray,
+        global_dimension: str,
+        global_axis: np.ndarray,
+    ) -> xr.DataArray:
+        """Scale stored result matrices to match the matrix used in the solve.
+
+        The optimization for non-full models applies ``scale`` and ``scale_list``
+        to the prepared matrices before estimating CLPs. The result object should
+        expose the same effective matrix so downstream decomposition variables such
+        as ``species_concentration`` remain consistent with the fitted data.
+        """
+        if has_dataset_model_global_model(dataset_model):
+            return matrix
+
+        scale = float(dataset_model.scale.value) if dataset_model.scale is not None else 1.0
+        scale_list = dataset_model.scale_list
+
+        if scale_list is None:
+            return matrix if scale == 1.0 else matrix * scale
+
+        scale_values = np.asarray([float(param.value) for param in scale_list], dtype=np.float64)
+        if scale_values.size != global_axis.size:
+            raise ValueError(
+                f"Dataset '{dataset_model.label}': length of 'scale_list' ({scale_values.size}) "
+                f"does not match the number of global axis points ({global_axis.size})."
+            )
+
+        scale_da = xr.DataArray(
+            scale_values * scale,
+            coords={global_dimension: global_axis},
+            dims=[global_dimension],
+        )
+
+        if global_dimension in matrix.dims:
+            return matrix * scale_da
+
+        return matrix.expand_dims({global_dimension: global_axis}) * scale_da
+
     def create_result_data(
         self,
         clp_standard_error: dict[str, xr.DataArray] | None = None,
@@ -177,7 +229,12 @@ class OptimizationGroup:
             result_dataset["residual"] = residuals[label]
             self.add_weight_to_result_data(label, result_dataset)
 
-            result_dataset["matrix"] = matrices[label]
+            result_dataset["matrix"] = self._scale_result_matrix(
+                dataset_model,
+                matrices[label],
+                global_dimension,
+                self._data_provider.get_global_axis(label),
+            )
             if label in global_matrices:
                 result_dataset["global_matrix"] = global_matrices[label]
             result_dataset["clp"] = clps[label]

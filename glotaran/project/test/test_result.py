@@ -58,6 +58,15 @@ def test_result_markdown_nested_parameters():
     assert "shapes.species_1.amplitude" in result.markdown()
 
 
+def test_result_markdown_additional_parameter_penalty(dummy_result: Result):
+    original = dummy_result.additional_parameter_penalty
+    dummy_result.additional_parameter_penalty = [[1.0, -1.0]]
+    try:
+        assert "RMSE additional parameter penalty" in dummy_result.markdown(with_model=False)
+    finally:
+        dummy_result.additional_parameter_penalty = original
+
+
 def test_get_scheme(dummy_result: Result):
     scheme = dummy_result.get_scheme()
     assert "residual" not in dummy_result.scheme.data["dataset_1"]

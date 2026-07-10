@@ -481,7 +481,10 @@ class IrfSpectralMultiGaussian(IrfMultiGaussian):
         knots = np.asarray([float(knot) for knot in self.width_dispersion_spline_knots])
         values = np.asarray([float(value) for value in self.width_dispersion_spline_values])
 
-        if self.width_dispersion_spline_knots_in_wavelength and self.model_dispersion_with_wavenumber:
+        if (
+            self.width_dispersion_spline_knots_in_wavelength
+            and self.model_dispersion_with_wavenumber
+        ):
             knots = 1e3 / knots
 
         order = np.argsort(knots)
