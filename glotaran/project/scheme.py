@@ -13,6 +13,8 @@ from glotaran.project.dataclass_helpers import file_loadable_field
 from glotaran.project.dataclass_helpers import init_file_loadable_fields
 from glotaran.utils.io import DatasetMapping
 from glotaran.utils.ipython import MarkdownStr
+from typing import Union
+import numpy as np
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -47,6 +49,7 @@ class Scheme:
     ftol: float = 1e-8
     gtol: float = 1e-8
     xtol: float = 1e-8
+    x_scale: Union[float, str, np.ndarray] = 1.0
     optimization_method: Literal[
         "TrustRegionReflection",
         "Dogbox",

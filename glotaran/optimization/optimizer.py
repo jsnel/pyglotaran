@@ -156,6 +156,7 @@ class Optimizer:
                     ftol=self._scheme.ftol,
                     gtol=self._scheme.gtol,
                     xtol=self._scheme.xtol,
+                    x_scale=getattr(self._scheme, 'x_scale', 1.0),
                 )
                 self._termination_reason = self._optimization_result.message
             except Exception as e:
