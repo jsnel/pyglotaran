@@ -6,10 +6,24 @@
 
 ### ✨ Features
 
+- ✨ Add `relative` mode to `EqualAreaPenalty` and persist its area breakdown in the result
+
 ### 🩹 Bug fixes
 
 - 🩹 Add pandas 3 compatibility (#1607)
 - 🩹 Fix array dimensionality issues in add_svd_to_dataset and simulation (#1608)
+
+### ⚠️ Behavior-affecting changes
+
+- ⚠️ `EqualAreaPenalty.relative` changes the optimization landscape for models that opt
+  into it (`source_area / (parameter * target_area) - 1` instead of
+  `abs(source_area - parameter * target_area)`). This is a deliberate design choice:
+  choosing a `weight` that balances the penalty against the other residuals is
+  intentionally left to the user, there is no universally correct default. Existing
+  models keep the previous behavior (`relative: false` by default). `Result` now
+  persists the equal-area penalty breakdown (`additional_penalty_areas`) with the
+  result instead of excluding it, so it no longer needs to be re-derived from saved
+  CLPs after reloading a result.
 
 ### 📚 Documentation
 

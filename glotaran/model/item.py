@@ -110,24 +110,27 @@ class ParameterIssue(ItemIssue):
         return f"Missing parameter with label '{self._label}'."
 
 
-class DuplicateParameterIssue(ItemIssue):
-    """Issue for duplicate parameter labels in parameter source file."""
+class ParameterBoundsIssue(ItemIssue):
+    """Issue for a parameter whose initial value is outside its declared bounds."""
 
-    def __init__(self, label: str, count: int, source_path: str):
-        """Create a duplicate parameter issue.
+    def __init__(self, label: str, value: float, bound: float, bound_name: str):
+        """Create a parameter bounds issue.
 
         Parameters
         ----------
         label : str
             The parameter label.
-        count : int
-            The number of times the label appears.
-        source_path : str
-            The path to the parameter source file.
+        value : float
+            The parameter's initial value.
+        bound : float
+            The violated bound value.
+        bound_name : str
+            Either ``"minimum"`` or ``"maximum"``.
         """
         self._label = label
-        self._count = count
-        self._source_path = source_path
+        self._value = value
+        self._bound = bound
+        self._bound_name = bound_name
 
     def to_string(self) -> str:
         """Get the issue as string.
@@ -136,9 +139,10 @@ class DuplicateParameterIssue(ItemIssue):
         -------
         str
         """
+        relation = "below its minimum" if self._bound_name == "minimum" else "exceeds its maximum"
         return (
-            f"Parameter '{self._label}' is declared {self._count} times"
-            f" in '{self._source_path}'"
+            f"Parameter '{self._label}' initial value {self._value:.6g}"
+            f" is {relation} {self._bound:.6g}."
         )
 
 

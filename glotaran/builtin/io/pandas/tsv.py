@@ -47,6 +47,8 @@ class TsvProjectIo(ProjectIoInterface):
             Parameters to be saved to file.
         file_name : str
             File to write the parameters to.
+        as_optimized : bool
+            Weather to include properties which are the result of optimization.
         replace_infinfinity : bool
             Weather to replace infinity values with empty strings.
         """

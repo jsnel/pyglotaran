@@ -94,7 +94,7 @@ class Result:
     additional_parameter_penalty: list[np.ndarray] | None = exclude_from_dict_field(None)
     """A vector with the value for each additional parameter penalty, or None."""
 
-    additional_penalty_areas: list[list[dict]] | None = exclude_from_dict_field(None)
+    additional_penalty_areas: list[list[dict]] | None = field(default=None)
     """Area breakdown for each equal-area CLP penalty, or None.
 
     One list per optimization group.  Each entry in the inner list is a dict with keys:
@@ -107,6 +107,9 @@ class Result:
     if ``relative`` is ``True``, it is based on
     ``(source_area / (parameter * target_area)) - 1``. The penalty contribution to
     chi-square is ``penalty ** 2``.
+
+    Persisted with the result (``result.yml``), so it does not need to be re-derived
+    from the saved CLPs after loading a result.
     """
 
     cost: ArrayLike | None = exclude_from_dict_field(None)
