@@ -17,8 +17,8 @@ class EqualParameterPenalty(ParameterPenalty):
     """Encourage a scaled equality relation between two parameters.
 
     The additional residual terms are added as
-    ``sqrt(weight) * (source / (parameter * target) - 1)`` and
-    ``sqrt(weight) * ((parameter * target) / source - 1)``.
+    ``weight * (source / (parameter * target) - 1)`` and
+    ``weight * ((parameter * target) / source - 1)``.
     """
 
     type: str = "equal"

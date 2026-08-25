@@ -297,6 +297,16 @@ def test_parameters_from_dataframe_minimal_required_columns():
         assert str(exc_info.value) == f"Missing required column '{req_col}' in 'DataFrame'."
 
 
+def test_parameters_from_dataframe_unknown_column_warns_and_is_dropped():
+    """Unknown columns are dropped but warned about, known derived columns are silent."""
+    df = pd.DataFrame([{"label": "foo.1", "value": 1, "t-value": 2.0, "not_a_column": "oops"}])
+
+    with pytest.warns(UserWarning, match="not_a_column"):
+        result = Parameters.from_dataframe(df)
+
+    assert result == Parameters.from_dict({"foo": [1]})
+
+
 @pytest.mark.parametrize(
     "column_name, expected_error_str",
     (

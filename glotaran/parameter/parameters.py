@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Generator
 from textwrap import indent
 from typing import TYPE_CHECKING
@@ -41,6 +42,9 @@ class Parameters:
         "non_negative",
         "vary",
     }
+
+    DERIVED_PARAMETER_COLUMNS = {"t-value"}
+    """Columns that are derived/read-only and never round-tripped through loading."""
 
     loader = load_parameters
 
@@ -158,20 +162,39 @@ class Parameters:
         Raises
         ------
         ValueError
-            Raised if the columns 'label' or 'value' doesn't exist. Also raised if the columns
-            'minimum', 'maximum' or 'values' contain non numeric values or if the columns
-            'non-negative' or 'vary' are no boolean.
+            Raised if the columns 'label' or 'value' doesn't exist. Also raised if any label
+            is declared more than once, if the columns 'minimum', 'maximum' or 'values'
+            contain non numeric values, or if the columns 'non-negative' or 'vary' are no
+            boolean.
 
         Returns
         -------
         Parameters
             The created parameter group.
 
+        Notes
+        -----
+        Columns that are neither a known parameter column (see ``DATAFRAME_COLUMNS``) nor a
+        known derived column (see ``DERIVED_PARAMETER_COLUMNS``, e.g. ``t-value``) are
+        dropped with a warning, so a misspelled column name is not silently ignored.
+
         .. # noqa: D414
         """
         for column_name in ["label", "value"]:
             if column_name not in df:
                 raise ValueError(f"Missing required column '{column_name}' in '{source}'.")
+
+        labels = df["label"].astype(str).str.strip()
+        label_counts = labels.value_counts()
+        duplicated_labels = label_counts[label_counts > 1]
+        if not duplicated_labels.empty:
+            details = ", ".join(
+                f"'{label}' ({count}x)" for label, count in duplicated_labels.items()
+            )
+            raise ValueError(
+                f"Duplicate parameter label(s) in '{source}': {details}. "
+                "Each parameter label must be unique."
+            )
 
         for column_name in filter(lambda x: x in df.columns, ["minimum", "maximum", "value"]):
             if any(not np.isreal(v) for v in df[column_name]):
@@ -186,11 +209,29 @@ class Parameters:
         if "expression" in df:
             expressions = df["expression"].to_list()
             df["expression"] = [expr if isinstance(expr, str) else None for expr in expressions]
+
+        unknown_columns = [
+            column
+            for column in df.columns
+            if column not in cls.DATAFRAME_COLUMNS and column not in cls.DERIVED_PARAMETER_COLUMNS
+        ]
+        if unknown_columns:
+            warnings.warn(
+                f"Ignoring unknown column(s) {unknown_columns} in '{source}'. Supported "
+                f"columns are: {sorted(cls.DATAFRAME_COLUMNS)}."
+            )
         df = df[[column for column in df.columns if column in cls.DATAFRAME_COLUMNS]]
         return cls.from_parameter_dict_list(df.to_dict(orient="records"))
 
     def to_dataframe(self, *, as_optimized: bool = False) -> pd.DataFrame:
         """Create a pandas data frame from the group.
+
+        Parameters
+        ----------
+        as_optimized : bool
+            Whether to add a derived, non-round-trippable ``T-value`` column
+            (``value / standard_error``) and blank the standard error of
+            non-varied parameters. Defaults to `False`.
 
         Returns
         -------
@@ -201,7 +242,7 @@ class Parameters:
         if as_optimized is not True:
             return parameter_df
 
-        non_vary_mask = parameter_df["vary"] == False
+        non_vary_mask = ~parameter_df["vary"]
         parameter_df.loc[non_vary_mask, "standard_error"] = np.nan
         standard_error_index = parameter_df.columns.get_loc("standard_error")
         parameter_df.insert(standard_error_index + 1, "T-value", np.nan)

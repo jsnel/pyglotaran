@@ -11,7 +11,6 @@ import xarray as xr
 from glotaran.model import DatasetGroup
 from glotaran.model import DatasetModel
 from glotaran.model import EqualAreaPenalty
-from glotaran.model import EqualParameterPenalty
 from glotaran.model.dataset_model import has_dataset_model_global_model
 from glotaran.model.dataset_model import is_dataset_single_amplitude_model
 from glotaran.model.item import fill_item
@@ -65,7 +64,6 @@ class EstimationProvider:
         """
         self._group = dataset_group
         self._clp_penalty: list[float] = []
-        self._parameter_penalty: list[float] = []
         self._clp_penalty_areas: list[dict] = []
         try:
             self._residual_function = SUPPORTED_RESIUDAL_FUNCTIONS[dataset_group.residual_function]
@@ -159,16 +157,6 @@ class EstimationProvider:
             The additional penalty.
         """
         return self._clp_penalty
-
-    def get_additional_parameter_penalties(self) -> list[float]:
-        """Get the additional parameter-penalty residual values.
-
-        Returns
-        -------
-        list[float]
-            The additional parameter penalties.
-        """
-        return self._parameter_penalty
 
     def get_additional_penalty_areas(self) -> list[dict]:
         """Get the area breakdown for each equal-area CLP penalty.
@@ -279,40 +267,6 @@ class EstimationProvider:
 
         return penalties, areas
 
-    def calculate_parameter_penalties(self) -> list[float]:
-        """Calculate additional residual values for parameter penalties.
-
-        Returns
-        -------
-        list[float]
-            Additional residual values to append to the objective vector.
-        """
-        model = self.group.model
-        parameters = self.group.parameters
-        penalties: list[float] = []
-
-        for penalty in model.parameter_penalties:
-            if not isinstance(penalty, EqualParameterPenalty):
-                continue
-            penalty = fill_item(penalty, model, parameters)  # type:ignore[arg-type]
-
-            source_value = float(penalty.source)
-            target_value = float(penalty.target)
-            scaled_target = float(penalty.parameter) * target_value
-            sqrt_weight = float(np.sqrt(penalty.weight))
-
-            if np.isclose(source_value, 0.0) or np.isclose(scaled_target, 0.0):
-                warnings.warn(
-                    "Ignoring equal parameter penalty because source or parameter*target is "
-                    "close to zero."
-                )
-                continue
-
-            penalties.append(float(sqrt_weight * (source_value / scaled_target - 1.0)))
-            penalties.append(float(sqrt_weight * (scaled_target / source_value - 1.0)))
-
-        return penalties
-
     def estimate(self):
         """Calculate the estimation.
 
@@ -385,7 +339,6 @@ class EstimationProviderUnlinked(EstimationProvider):
     def estimate(self):
         """Calculate the estimation."""
         self._clp_penalty.clear()
-        self._parameter_penalty = self.calculate_parameter_penalties()
 
         for dataset_model in self.group.dataset_models.values():
             if has_dataset_model_global_model(dataset_model):
@@ -413,8 +366,6 @@ class EstimationProviderUnlinked(EstimationProvider):
         )
         if len(self._clp_penalty) != 0:
             full_penalty = np.concatenate([full_penalty, self._clp_penalty])
-        if len(self._parameter_penalty) != 0:
-            full_penalty = np.concatenate([full_penalty, self._parameter_penalty])
         return full_penalty
 
     def get_result(
@@ -562,7 +513,6 @@ class EstimationProviderLinked(EstimationProvider):
 
     def estimate(self):
         """Calculate the estimation."""
-        self._parameter_penalty = self.calculate_parameter_penalties()
         for index, global_index_value in enumerate(self._data_provider.aligned_global_axis):
             matrix_container = self._matrix_provider.get_aligned_matrix_container(index)
             data = self._data_provider.get_aligned_data(index)
@@ -590,8 +540,6 @@ class EstimationProviderLinked(EstimationProvider):
             The clp penalty.
         """
         full_penalty = np.concatenate((np.concatenate(self._residuals), self._clp_penalty))
-        if len(self._parameter_penalty) != 0:
-            full_penalty = np.concatenate((full_penalty, self._parameter_penalty))
         return full_penalty
 
     def get_result(

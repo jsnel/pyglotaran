@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from glotaran.io import load_scheme
 from glotaran.model import Model
 from glotaran.parameter import Parameters
@@ -13,8 +15,6 @@ from glotaran.project.dataclass_helpers import file_loadable_field
 from glotaran.project.dataclass_helpers import init_file_loadable_fields
 from glotaran.utils.io import DatasetMapping
 from glotaran.utils.ipython import MarkdownStr
-from typing import Union
-import numpy as np
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,7 +49,7 @@ class Scheme:
     ftol: float = 1e-8
     gtol: float = 1e-8
     xtol: float = 1e-8
-    x_scale: Union[float, str, np.ndarray] = 1.0
+    x_scale: float | str | np.ndarray = 1.0
     optimization_method: Literal[
         "TrustRegionReflection",
         "Dogbox",
@@ -67,87 +67,27 @@ class Scheme:
         """Override attributes after initialization."""
         init_file_loadable_fields(self)
 
-    def validate(self) -> MarkdownStr:
+    def validate(self, *, raise_exception: bool = False) -> MarkdownStr:
         """Return a string listing all problems in the model and missing parameters.
 
-        In addition to the model/parameter cross-reference check performed by
-        ``Model.validate``, this method also detects:
+        This delegates to :meth:`Model.validate`, which in addition to the
+        model/parameter cross-reference check also detects duplicate parameter
+        labels (rejected at parameter load time, see
+        :meth:`Parameters.from_dataframe`) and parameters whose initial value is
+        outside their declared bounds.
 
-        * **Double declarations** – the same label appearing more than once in
-          the source CSV file (silently overwritten during loading, the second
-          value wins without warning).
-        * **Initial guess outside declared bounds** – any parameter whose
-          ``value`` is strictly below its ``minimum`` or above its ``maximum``
-          (which would raise a ``ValueError`` inside ``optimize()``).
+        Parameters
+        ----------
+        raise_exception: bool
+            Whether to raise an exception on failed validation instead of returning
+            an advisory report.
 
         Returns
         -------
         MarkdownStr
             A user-friendly string when no problems are found.
-
-        Raises
-        ------
-        ValueError
-            Raised when any parameter problem is detected (double declaration
-            or initial guess outside bounds), so that execution stops before
-            ``optimize()`` is called.
         """
-        import csv
-        import math
-        import pathlib
-        from collections import Counter
-
-        result = str(self.model.validate(self.parameters))
-        parameter_issues: list[str] = []
-
-        # --- Double declaration: re-read the source CSV to count raw labels ---
-        source_path = getattr(self.parameters, "source_path", None)
-        if source_path is not None:
-            csv_path = pathlib.Path(source_path)
-            if csv_path.suffix.lower() == ".csv":
-                try:
-                    with open(csv_path, newline="", encoding="utf-8") as fh:
-                        raw_labels = [
-                            row["label"].strip()
-                            for row in csv.DictReader(fh)
-                            if row.get("label", "").strip()
-                        ]
-                    for lbl, cnt in sorted(Counter(raw_labels).items()):
-                        if cnt > 1:
-                            parameter_issues.append(
-                                f"Parameter '{lbl}' is declared {cnt} times" f" in '{csv_path}'"
-                            )
-                except (OSError, KeyError):
-                    pass  # file not accessible – skip duplicate check
-
-        # --- Out-of-bounds initial guess ---
-        for param in self.parameters.all():
-            val = param.value
-            if val is None or (isinstance(val, float) and math.isnan(val)):
-                continue
-            mn = param.minimum if not math.isinf(param.minimum) else None
-            mx = param.maximum if not math.isinf(param.maximum) else None
-            if mn is not None and val < mn:
-                parameter_issues.append(
-                    f"Parameter '{param.label}' initial value {val:.6g}"
-                    f" is below its minimum {mn:.6g}"
-                )
-            if mx is not None and val > mx:
-                parameter_issues.append(
-                    f"Parameter '{param.label}' initial value {val:.6g}"
-                    f" exceeds its maximum {mx:.6g}"
-                )
-
-        if parameter_issues:
-            n = len(parameter_issues)
-            problems = "\n".join(f"  * {issue}" for issue in parameter_issues)
-            raise ValueError(
-                f"Scheme.validate() found {n} parameter"
-                f" problem{'s' if n > 1 else ''} -"
-                f" fix before calling optimize():\n{problems}"
-            )
-
-        return MarkdownStr(result)
+        return self.model.validate(self.parameters, raise_exception=raise_exception)
 
     def valid(self) -> bool:
         """Check if there are no problems with the model or the parameters.
