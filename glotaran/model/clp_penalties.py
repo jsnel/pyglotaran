@@ -20,6 +20,19 @@ class EqualAreaPenalty(ClpPenalty):
     compartments in the e matrix in one or more intervals to the scaled sum
     of the e matrix of one or more target compartments to residual. The additional
     residual is scaled with the weight.
+
+    ``relative`` selects the penalty form:
+
+    * ``False`` (default): the additional residual is the absolute difference
+      ``source_area - parameter * target_area``, unchanged from prior releases.
+    * ``True``: the additional residual is the relative difference
+      ``source_area / (parameter * target_area) - 1``.
+
+    Switching ``relative`` changes the optimization landscape and thus the
+    optimized parameter values for models that opt in - this is deliberate,
+    not a bug. Choosing a ``weight`` that balances this penalty against the
+    other residuals is intentionally left to the user; there is no default
+    that is correct for every model.
     """
 
     type: str = "equal_area"

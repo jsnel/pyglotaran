@@ -10,6 +10,8 @@ from scipy.optimize import OptimizeResult
 from scipy.optimize import least_squares
 
 from glotaran import __version__ as glotaran_version
+from glotaran.model import EqualParameterPenalty
+from glotaran.model.item import fill_item
 from glotaran.optimization.clp_standard_error import ClpStandardErrorSettings
 from glotaran.optimization.clp_standard_error import calculate_clp_standard_error
 from glotaran.optimization.optimization_group import OptimizationGroup
@@ -126,6 +128,8 @@ class Optimizer:
             for group in scheme.model.get_dataset_groups().values()
         ]
 
+        self._parameter_penalty: list[float] = []
+
         self._parameter_history = ParameterHistory()
         self._parameter_history.append(scheme.parameters)
 
@@ -156,7 +160,7 @@ class Optimizer:
                     ftol=self._scheme.ftol,
                     gtol=self._scheme.gtol,
                     xtol=self._scheme.xtol,
-                    x_scale=getattr(self._scheme, 'x_scale', 1.0),
+                    x_scale=getattr(self._scheme, "x_scale", 1.0),
                 )
                 self._termination_reason = self._optimization_result.message
             except Exception as e:
@@ -181,6 +185,48 @@ class Optimizer:
         self._parameters.set_from_label_and_value_arrays(self._free_parameter_labels, parameters)
         return self.calculate_penalty()
 
+    def calculate_parameter_penalties(self) -> list[float]:
+        """Calculate additional residual values for parameter penalties.
+
+        Computed once per objective evaluation (the penalties are global to the
+        model, not scoped to a dataset group).
+
+        Returns
+        -------
+        list[float]
+            Additional residual values to append to the objective vector.
+        """
+        model = self._scheme.model
+        parameters = self._parameters
+        penalties: list[float] = []
+
+        for penalty in model.parameter_penalties:
+            if not isinstance(penalty, EqualParameterPenalty):
+                continue
+            penalty = fill_item(penalty, model, parameters)
+
+            source_value = float(penalty.source)
+            target_value = float(penalty.target)
+            scaled_target = float(penalty.parameter) * target_value
+            weight = float(penalty.weight)
+
+            if np.isclose(source_value, 0.0) or np.isclose(scaled_target, 0.0):
+                # Ratio form is undefined near zero; clamp to an absolute-difference
+                # fallback instead of skipping, so the residual vector length is
+                # always the same regardless of parameter values.
+                warn(
+                    "Falling back to absolute equal parameter penalty, source or "
+                    "parameter*target is close to zero."
+                )
+                residual = source_value - scaled_target
+                penalties.append(float(weight * residual))
+                penalties.append(float(weight * residual))
+            else:
+                penalties.append(float(weight * (source_value / scaled_target - 1.0)))
+                penalties.append(float(weight * (scaled_target / source_value - 1.0)))
+
+        return penalties
+
     def calculate_penalty(self) -> ArrayLike:
         """Calculate the penalty of the scheme.
 
@@ -195,7 +241,11 @@ class Optimizer:
             self._parameters, self.get_current_optimization_iteration(self._tee.read())
         )
 
+        self._parameter_penalty = self.calculate_parameter_penalties()
+
         penalties = [group.get_full_penalty() for group in self._optimization_groups]
+        if len(self._parameter_penalty) != 0:
+            penalties.append(np.asarray(self._parameter_penalty))
 
         return np.concatenate(penalties) if len(penalties) != 1 else penalties[0]
 
@@ -275,9 +325,7 @@ class Optimizer:
         result_args["additional_penalty"] = [
             group.get_additional_penalties() for group in self._optimization_groups
         ]
-        result_args["additional_parameter_penalty"] = [
-            group.get_additional_parameter_penalties() for group in self._optimization_groups
-        ]
+        result_args["additional_parameter_penalty"] = [self._parameter_penalty]
         result_args["additional_penalty_areas"] = [
             group.get_additional_penalty_areas() for group in self._optimization_groups
         ]

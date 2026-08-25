@@ -12,8 +12,6 @@ from glotaran.parameter.parameter import OPTION_NAMES_DESERIALIZED
 from glotaran.utils.io import safe_dataframe_fillna
 from glotaran.utils.io import safe_dataframe_replace
 
-DERIVED_PARAMETER_COLUMNS = ["t-value"]
-
 
 @register_project_io(["csv"])
 class CsvProjectIo(ProjectIoInterface):
@@ -35,7 +33,7 @@ class CsvProjectIo(ProjectIoInterface):
         """
         df = pd.read_csv(file_name, skipinitialspace=True, na_values=["None", "none"], sep=sep)
         df.columns = [column.lower() for column in df.columns]
-        df = df.drop(columns=DERIVED_PARAMETER_COLUMNS, errors="ignore")
+        df = df.drop(columns=Parameters.DERIVED_PARAMETER_COLUMNS, errors="ignore")
         df = df.rename(columns=OPTION_NAMES_DESERIALIZED)
         safe_dataframe_fillna(df, "minimum", -np.inf)
         safe_dataframe_fillna(df, "maximum", np.inf)

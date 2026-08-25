@@ -101,16 +101,6 @@ class OptimizationGroup:
         """
         return self._estimation_provider.get_additional_penalties()
 
-    def get_additional_parameter_penalties(self) -> list[float]:
-        """Get additional parameter penalties.
-
-        Returns
-        -------
-        list[float]
-            The additional parameter penalties.
-        """
-        return self._estimation_provider.get_additional_parameter_penalties()
-
     def get_additional_penalty_areas(self) -> list[dict]:
         """Get the area breakdown for each equal-area CLP penalty.
 

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import csv
-import pathlib
-from collections import Counter
+import math
 from collections.abc import Callable
 from collections.abc import Generator
 from collections.abc import Iterable
@@ -28,10 +26,10 @@ from glotaran.model.clp_relation import ClpRelation
 from glotaran.model.dataset_group import DatasetGroup
 from glotaran.model.dataset_group import DatasetGroupModel
 from glotaran.model.dataset_model import DatasetModel
-from glotaran.model.item import DuplicateParameterIssue
 from glotaran.model.item import Item
 from glotaran.model.item import ItemIssue
 from glotaran.model.item import ModelItem
+from glotaran.model.item import ParameterBoundsIssue
 from glotaran.model.item import TypedItem
 from glotaran.model.item import get_item_issues
 from glotaran.model.item import item_to_markdown
@@ -415,6 +413,8 @@ class Model:
         issues = []
         for item in self.iterate_all_items():
             issues += get_item_issues(item=item, model=self, parameters=parameters)
+        if parameters is not None:
+            issues += _get_parameter_bounds_issues(parameters)
         return issues
 
     def validate(
@@ -442,31 +442,6 @@ class Model:
 
         # Collect all issues from model items
         issues = list(self.get_issues(parameters=parameters))
-
-        # Check for duplicate parameter labels in the source CSV file
-        if parameters is not None:
-            source_path = getattr(parameters, "source_path", None)
-            if source_path is not None:
-                csv_path = pathlib.Path(source_path)
-                if csv_path.suffix.lower() == ".csv":
-                    try:
-                        with open(csv_path, newline="", encoding="utf-8") as fh:
-                            raw_labels = [
-                                row["label"].strip()
-                                for row in csv.DictReader(fh)
-                                if row.get("label", "").strip()
-                            ]
-                        for lbl, cnt in sorted(Counter(raw_labels).items()):
-                            if cnt > 1:
-                                issues.append(
-                                    DuplicateParameterIssue(
-                                        label=lbl,
-                                        count=cnt,
-                                        source_path=str(csv_path),
-                                    )
-                                )
-                    except (OSError, KeyError):
-                        pass  # file not accessible – skip duplicate check
 
         if issues:
             result = f"Your model has {len(issues)} problem{'s' if len(issues) > 1 else ''}:\n"
@@ -550,3 +525,37 @@ class Model:
         str
         """
         return str(self.markdown(base_heading_level=3))
+
+
+def _get_parameter_bounds_issues(parameters: Parameters) -> list[ItemIssue]:
+    """Get issues for parameters whose initial value is outside their declared bounds.
+
+    Parameters
+    ----------
+    parameters : Parameters
+        The parameters.
+
+    Returns
+    -------
+    list[ItemIssue]
+    """
+    issues: list[ItemIssue] = []
+    for param in parameters.all():
+        value = param.value
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            continue
+        minimum = param.minimum if not math.isinf(param.minimum) else None
+        maximum = param.maximum if not math.isinf(param.maximum) else None
+        if minimum is not None and value < minimum:
+            issues.append(
+                ParameterBoundsIssue(
+                    label=param.label, value=value, bound=minimum, bound_name="minimum"
+                )
+            )
+        if maximum is not None and value > maximum:
+            issues.append(
+                ParameterBoundsIssue(
+                    label=param.label, value=value, bound=maximum, bound_name="maximum"
+                )
+            )
+    return issues
