@@ -102,6 +102,16 @@ def test_initial_concentration(model):
         assert initial_concentration.parameters == ["1", "2", "3"]
 
 
+def test_initial_concentration_validation(model):
+    model.initial_concentration["inputD1"].parameters = ["1"]
+
+    validation = model.validate()
+
+    assert "Initial concentration 'inputD1' has 3 compartments but 1 parameter." in validation
+    assert "Compartments: ['s1', 's2', 's3']." in validation
+    assert "Parameters: ['1']." in validation
+
+
 def test_irf(model):
     assert len(model.irf) == 2
 
