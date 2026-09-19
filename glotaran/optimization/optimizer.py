@@ -14,6 +14,7 @@ from glotaran.model import EqualParameterPenalty
 from glotaran.model.item import fill_item
 from glotaran.optimization.clp_standard_error import ClpStandardErrorSettings
 from glotaran.optimization.clp_standard_error import calculate_clp_standard_error
+from glotaran.optimization.data_provider import prepare_generated_datasets
 from glotaran.optimization.optimization_group import OptimizationGroup
 from glotaran.optimization.optimization_history import OptimizationHistory
 from glotaran.parameter import ParameterHistory
@@ -104,6 +105,7 @@ class Optimizer:
         UnsupportedMethodError
             Raised if the optimization method is unsupported.
         """
+        prepare_generated_datasets(scheme)
         if missing_datasets := [
             label for label in scheme.model.dataset if label not in scheme.data
         ]:

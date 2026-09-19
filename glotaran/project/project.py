@@ -666,7 +666,7 @@ class Project:
         data = {
             dataset_name: self.data[dataset_name]
             for dataset_name in loaded_model.dataset
-            if dataset_name not in data_lookup_override
+            if dataset_name not in data_lookup_override and dataset_name in self.data
         }
         return Scheme(
             model=loaded_model,

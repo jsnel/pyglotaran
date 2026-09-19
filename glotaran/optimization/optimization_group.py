@@ -88,6 +88,7 @@ class OptimizationGroup:
             The parameters.
         """
         self._dataset_group.set_parameters(parameters)
+        self._data_provider.update_generated_data()
         self._matrix_provider.calculate()
         self._estimation_provider.estimate()
 
