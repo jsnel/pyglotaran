@@ -3,9 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import xarray as xr
-
 from glotaran.builtin.megacomplexes.decay.test.test_decay_megacomplex import DecayModel
 from glotaran.builtin.megacomplexes.spectral import SpectralMegacomplex
+from glotaran.builtin.megacomplexes.spectral.shape import SpectralShapeSkewedGaussian
+from glotaran.builtin.megacomplexes.spectral.shape import SpectralShapeSkewedGaussianSum
 from glotaran.model import Model
 from glotaran.model import fill_item
 from glotaran.optimization.matrix_provider import MatrixProvider
@@ -302,3 +303,68 @@ def test_spectral_model(suite):
         suite.axis["spectral"].size,
         len(suite.decay_compartments),
     )
+
+
+def test_skewed_gaussian_shape_accepts_parameter_lists_and_sums_components():
+    axis = np.array([640.0, 650.0, 660.0])
+    shape = SpectralShapeSkewedGaussianSum(
+        label="sum",
+        amplitude=[2.0, 3.0],
+        location=[650.0, 660.0],
+        width=[20.0, 10.0],
+        skewness=[0.0, 0.5],
+    )
+    first = SpectralShapeSkewedGaussian(
+        label="first",
+        amplitude=2.0,
+        location=650.0,
+        width=20.0,
+        skewness=0.0,
+    ).calculate(axis)
+    second = SpectralShapeSkewedGaussian(
+        label="second",
+        amplitude=3.0,
+        location=660.0,
+        width=10.0,
+        skewness=0.5,
+    ).calculate(axis)
+
+    np.testing.assert_allclose(shape.calculate(axis), first + second)
+
+
+def test_skewed_gaussian_shape_rejects_mismatched_parameter_lists():
+    shape = SpectralShapeSkewedGaussianSum(
+        label="mismatched",
+        amplitude=[1.0, 2.0],
+        location=[650.0],
+        width=[20.0, 10.0],
+        skewness=[0.0, 0.5],
+    )
+
+    with pytest.raises(ValueError, match="same number of components"):
+        shape.calculate(np.array([650.0]))
+
+
+def test_skewed_gaussian_sum_fills_list_parameter_labels():
+    model = SpectralModel(
+        shape={
+            "sum": {
+                "type": "skewed-gaussian-sum",
+                "amplitude": ["1", "2"],
+                "location": ["3", "4"],
+                "width": ["5", "6"],
+                "skewness": ["7", "8"],
+            }
+        }
+    )
+    filled = fill_item(
+        model.shape["sum"],
+        model,
+        Parameters.from_list([1, 2, 3, 4, 5, 6, 7, 8]),
+    )
+
+    assert filled.amplitude == [1, 2]
+    assert filled.location == [3, 4]
+    assert filled.width == [5, 6]
+    assert filled.skewness == [7, 8]
+    assert filled.calculate(np.array([3.0])).shape == (1,)

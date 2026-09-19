@@ -7,6 +7,31 @@ from glotaran.model import ParameterType
 from glotaran.model import item
 
 
+def _as_parameter_list(value):
+    return value if isinstance(value, list) else [value]
+
+
+def _calculate_skewed_gaussian_component(
+    axis: np.ndarray,
+    amplitude: float | None,
+    location: float,
+    width: float,
+    skewness: float,
+) -> np.ndarray:
+    if np.allclose(skewness, 0):
+        component = np.exp(-np.log(2) * np.square(2 * (axis - location) / width))
+    else:
+        log_args = 1 + (2 * skewness * (axis - location) / width)
+        component = np.zeros(log_args.shape)
+        valid_arg_mask = log_args > 0
+        component[valid_arg_mask] = np.exp(
+            -np.log(2) * np.square(np.log(log_args[valid_arg_mask]) / skewness)
+        )
+    if amplitude is not None:
+        component *= amplitude
+    return component
+
+
 @item
 class SpectralShape(ModelItemTyped):
     pass
@@ -123,17 +148,40 @@ class SpectralShapeSkewedGaussian(SpectralShapeGaussian):
         np.ndarray
             An array representing a skewed Gaussian shape.
         """
-        if np.allclose(self.skewness, 0):
-            return super().calculate(axis)
-        log_args = 1 + (2 * self.skewness * (axis - self.location) / self.width)
-        shape = np.zeros(log_args.shape)
-        valid_arg_mask = np.where(log_args > 0)
-        shape[valid_arg_mask] = np.exp(
-            -np.log(2) * np.square(np.log(log_args[valid_arg_mask]) / self.skewness)
+        return _calculate_skewed_gaussian_component(
+            axis, self.amplitude, self.location, self.width, self.skewness
         )
-        if self.amplitude is not None:
-            shape *= self.amplitude
-        return shape
+
+
+@item
+class SpectralShapeSkewedGaussianSum(SpectralShape):
+    """A sum of skewed Gaussian spectral shapes."""
+
+    type: str = "skewed-gaussian-sum"
+    amplitude: list[ParameterType] | None = None
+    location: list[ParameterType]
+    width: list[ParameterType]
+    skewness: list[ParameterType]
+
+    def calculate(self, axis: np.ndarray) -> np.ndarray:
+        """Calculate and sum the skewed Gaussian components for ``axis``."""
+        component_count = len(self.location)
+        amplitudes = self.amplitude or [None] * component_count
+        if len({component_count, len(self.width), len(self.skewness), len(amplitudes)}) != 1:
+            raise ValueError(
+                "Skewed Gaussian sum parameters amplitude, location, width, and "
+                "skewness must have the same number of components."
+            )
+
+        return sum(
+            (
+                _calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
+                for amplitude, location, width, skewness in zip(
+                    amplitudes, self.location, self.width, self.skewness, strict=True
+                )
+            ),
+            start=np.zeros(axis.shape, dtype=float),
+        )
 
 
 @item
