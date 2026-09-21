@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textwrap import indent
+from warnings import warn
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -33,6 +34,12 @@ class ParameterNotFoundError(Exception):
 
 class Parameters:
     """A container for :class:`Parameter`."""
+
+    DATAFRAME_COLUMNS = {
+        "label", "value", "standard_error", "expression", "maximum", "minimum",
+        "non_negative", "vary",
+    }
+    DERIVED_PARAMETER_COLUMNS = {"t-value", "T-value"}
 
     loader = load_parameters
 
@@ -165,10 +172,21 @@ class Parameters:
 
         .. # noqa: D414
         """
+        df = df.copy()
         for column_name in ["label", "value"]:
             if column_name not in df:
                 msg = f"Missing required column '{column_name}' in '{source}'."
                 raise ValueError(msg)
+
+        labels = df["label"].astype(str).str.strip()
+        duplicates = labels[labels.duplicated(keep=False)].unique()
+        if len(duplicates):
+            raise ValueError(f"Duplicate parameter label(s) in '{source}': {list(duplicates)}.")
+        df["label"] = labels
+        unknown = set(df.columns) - cls.DATAFRAME_COLUMNS - cls.DERIVED_PARAMETER_COLUMNS
+        if unknown:
+            warn(f"Ignoring unknown column(s) {sorted(unknown)} in '{source}'.", stacklevel=2)
+        df = df[[column for column in df.columns if column in cls.DATAFRAME_COLUMNS]]
 
         for column_name in filter(lambda x: x in df.columns, ["minimum", "maximum", "value"]):
             if any(not np.isreal(v) for v in df[column_name]):
@@ -187,7 +205,7 @@ class Parameters:
             df["expression"] = [expr if isinstance(expr, str) else None for expr in expressions]
         return cls.from_parameter_dict_list(df.to_dict(orient="records"))
 
-    def to_dataframe(self) -> pd.DataFrame:
+    def to_dataframe(self, *, as_optimized: bool = False) -> pd.DataFrame:
         """Create a pandas data frame from the group.
 
         Returns
@@ -195,7 +213,14 @@ class Parameters:
         pd.DataFrame
             The created data frame.
         """
-        return pd.DataFrame(self.to_parameter_dict_list())
+        frame = pd.DataFrame(self.to_parameter_dict_list())
+        if as_optimized and not frame.empty:
+            frame.loc[~frame["vary"], "standard_error"] = np.nan
+            error = frame["standard_error"]
+            valid = frame["vary"] & error.notna() & (error.abs() >= MINIMUM_STANDARD_ERROR)
+            t_value = (frame["value"] / error).where(valid)
+            frame.insert(frame.columns.get_loc("standard_error") + 1, "T-value", t_value)
+        return frame
 
     def to_parameter_dict_list(self) -> list[dict[str, Any]]:
         """Create list of parameter dictionaries from the group.
