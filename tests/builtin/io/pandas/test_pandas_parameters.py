@@ -64,7 +64,10 @@ def test_roundtrips(
     """Roundtrip via save and load have the same data."""
     format_reference = load_parameters(reference_path)
     parameter_path = tmp_path / f"test_parameters.{format_name}"
-    save_parameters(file_name=parameter_path, format_name=format_name, parameters=yaml_reference)
+    save_parameters(
+        file_name=parameter_path, format_name=format_name, parameters=yaml_reference,
+        as_optimized=False,
+    )
     parameters_roundtrip = load_parameters(parameter_path)
 
     assert parameters_roundtrip == yaml_reference

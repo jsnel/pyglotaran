@@ -64,7 +64,7 @@ class CsvProjectIo(ProjectIoInterface):
         replace_infinity : bool
             Weather to replace infinity values with empty strings.
         """
-        parameter_df = parameters.to_dataframe()
+        parameter_df = parameters.to_dataframe(as_optimized=as_optimized)
         if replace_infinity is True:
             parameter_df = parameter_df.pipe(
                 safe_dataframe_replace,
