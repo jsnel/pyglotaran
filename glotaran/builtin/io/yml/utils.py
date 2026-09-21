@@ -40,7 +40,8 @@ def write_dict(
     """
     yaml = YAML()
     yaml.representer.add_representer(type(None), _yaml_none_representer)
-    yaml.indent(mapping=2, sequence=2, offset=offset)
+    # The dash offset must leave two columns for nested mapping values.
+    yaml.indent(mapping=2, sequence=max(2, offset + 2), offset=offset)
 
     if file_name is not None:
         with Path(file_name).open("w", encoding="utf8") as f:

@@ -30,6 +30,7 @@ class EqualAreaPenalty(ClpPenalty):
     target_intervals: list[tuple[float, float]] | tuple[float, float] | None = None
     parameter: ParameterType
     weight: float
+    relative: bool = False
 
     def source_applies(self, index: float | None) -> bool:
         return self.applies(index, self.source_intervals)  # type:ignore[arg-type]

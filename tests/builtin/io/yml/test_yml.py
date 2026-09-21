@@ -128,7 +128,7 @@ def test_result_round_tripping(tmp_path: Path, result_file_name: str):
     """Saving and loading Result via YAML preserves data."""
     save_path = tmp_path / result_file_name
     result_file_paths = save_result(RESULT, save_path)
-    assert result_file_paths == [
+    assert [Path(path).resolve().as_posix() for path in result_file_paths] == [
         (tmp_path / "result.yml").as_posix(),
         (tmp_path / "scheme.yml").as_posix(),
         (tmp_path / "initial_parameters.csv").as_posix(),

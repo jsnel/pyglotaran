@@ -8,6 +8,10 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+import numpy as np
+
+from glotaran.model.parameter_penalties import EqualParameterPenalty
 
 from glotaran.io import load_dataset
 from glotaran.model.errors import GlotaranUserError
@@ -31,6 +35,19 @@ class Scheme(BaseModel):
 
     experiments: dict[str, ExperimentModel]
     library: ModelLibrary
+    parameter_penalties: list[EqualParameterPenalty] = Field(default_factory=list)
+    x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+
+    @field_validator("x_scale")
+    @classmethod
+    def validate_x_scale(cls, value):
+        if value == "jac":
+            return value
+        values = list(value.values()) if isinstance(value, dict) else value
+        if np.any(~np.isfinite(values)) or np.any(np.asarray(values) <= 0):
+            raise ValueError("x_scale must contain finite positive values.")
+        return value
+
     source_path: Path | None = Field(
         default=None,
         description="Path to the source file from which this scheme was loaded.",
@@ -47,7 +64,7 @@ class Scheme(BaseModel):
             for d in e.datasets.values():
                 if isinstance(d.data, str):
                     d.data = load_dataset(d.data)
-        return cls(experiments=experiments, library=library, source_path=source_path)
+        return cls(**(spec | {"experiments": experiments, "library": library, "source_path": source_path}))
 
     def _load_data(self, datasets: DatasetMapping) -> None:
         try:
@@ -74,6 +91,7 @@ class Scheme(BaseModel):
         ftol: float = 1e-8,
         gtol: float = 1e-8,
         xtol: float = 1e-8,
+        x_scale: float | Literal["jac"] | list[float] | dict[str, float] | None = None,
         optimization_method: Literal[
             "TrustRegionReflection",
             "Dogbox",
@@ -99,6 +117,8 @@ class Scheme(BaseModel):
             ftol=ftol,
             gtol=gtol,
             xtol=xtol,
+            x_scale=self.x_scale if x_scale is None else self.validate_x_scale(x_scale),
+            parameter_penalties=self.parameter_penalties,
             optimization_method=optimization_method,
         )
         optimized_parameters, optimized_data, optimization_info = (

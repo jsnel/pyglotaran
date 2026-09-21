@@ -94,6 +94,7 @@ class OptimizationInfo(BaseModel):
     :math:`rms = \sqrt{\chi^2_{red}}`
     """
     additional_penalty: float | None = None
+    additional_parameter_penalty: list[float] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

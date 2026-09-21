@@ -59,30 +59,12 @@ def calculate_clp_penalties(
     list[float]
         The clp penalty.
     """
-    return np.array(
-        [
-            np.abs(
-                np.sum(
-                    _get_area(
-                        penalty.source,
-                        penalty.source_intervals,
-                        matrices,
-                        estimations,
-                        global_axis,
-                    )
-                )
-                - penalty.parameter
-                * np.sum(
-                    _get_area(
-                        penalty.target,
-                        penalty.target_intervals,
-                        matrices,
-                        estimations,
-                        global_axis,
-                    )
-                )
-            )
-            * penalty.weight
-            for penalty in penalties
-        ]
-    )
+    values = []
+    for penalty in penalties:
+        source = float(np.sum(_get_area(penalty.source, penalty.source_intervals,
+                                       matrices, estimations, global_axis)))
+        target = float(penalty.parameter) * float(np.sum(_get_area(
+            penalty.target, penalty.target_intervals, matrices, estimations, global_axis)))
+        value = (source / target - 1.0) if penalty.relative and not np.isclose(target, 0) else abs(source - target)
+        values.append(value * penalty.weight)
+    return np.asarray(values)
