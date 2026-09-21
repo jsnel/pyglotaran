@@ -12,6 +12,8 @@ from scipy.optimize import least_squares
 
 from glotaran.model.errors import GlotaranModelIssues
 from glotaran.model.errors import GlotaranUserError
+from glotaran.model.item import resolve_item_parameters
+from glotaran.model.parameter_penalties import EqualParameterPenalty
 from glotaran.optimization.info import OptimizationInfo
 from glotaran.optimization.info import OptimizerSettings
 from glotaran.optimization.objective import OptimizationObjective
@@ -65,6 +67,8 @@ class Optimization:
         ftol: float | None = 1e-8,
         gtol: float | None = 1e-8,
         xtol: float | None = 1e-8,
+        x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0,
+        parameter_penalties: list[EqualParameterPenalty] | None = None,
         optimization_method: Literal[
             "TrustRegionReflection",
             "Dogbox",
@@ -89,6 +93,11 @@ class Optimization:
             experiment.resolve(library, self._parameters, initial=parameters)
             for experiment in models
         ]
+        self._parameter_penalties = [
+            resolve_item_parameters(p, self._parameters, parameters)
+            for p in parameter_penalties or []
+        ]
+        self._warned_penalty_fallback = False
         issues = [issue for experiment in models for issue in experiment.get_issues(parameters)]
         if len(issues) > 0:
             raise GlotaranModelIssues(issues)
@@ -105,6 +114,7 @@ class Optimization:
             gtol=gtol,
             xtol=xtol,
             maximum_number_function_evaluations=maximum_number_function_evaluations,
+            x_scale=x_scale,
         )
 
         self.cost_history: list[float] = []
@@ -128,6 +138,25 @@ class Optimization:
         """
         return self._parameters
 
+    def calculate_parameter_penalties(self) -> np.ndarray:
+        residuals = []
+        for penalty in self._parameter_penalties:
+            source = float(penalty.source)
+            target = float(penalty.parameter) * float(penalty.target)
+            if np.isclose(source, 0.0) or np.isclose(target, 0.0):
+                if not self._warned_penalty_fallback:
+                    warn("Falling back to absolute equal parameter penalty near zero.", stacklevel=2)
+                    self._warned_penalty_fallback = True
+                residuals.extend([penalty.weight * (source - target)] * 2)
+            else:
+                residuals.extend([penalty.weight * (source / target - 1),
+                                  penalty.weight * (target / source - 1)])
+        return np.asarray(residuals, dtype=float)
+
+    def calculate_penalty(self) -> np.ndarray:
+        return np.concatenate([*[o.calculate() for o in self._objectives],
+                               self.calculate_parameter_penalties()])
+
     def run(self) -> tuple[Parameters, dict[str, OptimizationResult], OptimizationInfo]:
         """Perform the optimization.
 
@@ -142,6 +171,13 @@ class Optimization:
             lower_bounds,
             upper_bounds,
         ) = self._parameters.get_label_value_and_bounds_arrays(exclude_non_vary=True)
+        x_scale = self.settings.x_scale
+        if isinstance(x_scale, dict):
+            if set(x_scale) != set(self._free_parameter_labels):
+                raise ValueError("x_scale mapping must name every free parameter exactly once.")
+            x_scale = [x_scale[label] for label in self._free_parameter_labels]
+        if isinstance(x_scale, list) and len(x_scale) != len(self._free_parameter_labels):
+            raise ValueError("x_scale list must match the free parameter count.")
         ls_result = None
         termination_reason = ""
         no_free_parameters = initial_parameter.size == 0
@@ -161,6 +197,7 @@ class Optimization:
                         ftol=self.settings.ftol,
                         gtol=self.settings.gtol,
                         xtol=self.settings.xtol,
+                        x_scale=x_scale,
                     )
                     termination_reason = ls_result.message
                     self.converged = bool(ls_result.success)
@@ -182,7 +219,7 @@ class Optimization:
             penalty = (
                 self.objective_function(initial_parameter)
                 if no_free_parameters
-                else np.concatenate([o.calculate() for o in self._objectives])
+                else self.calculate_penalty()
             )
         except Exception as e:
             # After an exception in the objective, the evaluation at the same parameters fails
@@ -219,12 +256,13 @@ class Optimization:
             number_of_clps,
             number_of_function_evaluations=len(self.cost_history),
         )
+        optimization_info.additional_parameter_penalty = self.calculate_parameter_penalties().tolist()
         return self._parameters, optimization_results, optimization_info
 
     def dry_run(self) -> tuple[Parameters, dict[str, OptimizationResult], OptimizationInfo]:
         termination_reason = "Dry run."
 
-        penalty = np.concatenate([o.calculate() for o in self._objectives])
+        penalty = self.calculate_penalty()
         results = [o.get_result() for o in self._objectives]
         data = dict(ChainMap(*[r.optimization_results for r in results]))
         number_of_clps = sum(r.clp_size for r in results)
@@ -241,6 +279,7 @@ class Optimization:
             number_of_function_evaluations=1,
             dry_run=True,
         )
+        result.additional_parameter_penalty = self.calculate_parameter_penalties().tolist()
         return self._parameters, data, result
 
     def objective_function(self, parameters: ArrayLike) -> ArrayLike:
@@ -260,7 +299,7 @@ class Optimization:
             The objective for the optimizer.
         """
         self._parameters.set_from_label_and_value_arrays(self._free_parameter_labels, parameters)
-        penalty = np.concatenate([o.calculate() for o in self._objectives])
+        penalty = self.calculate_penalty()
         self.cost_history.append(0.5 * float(np.dot(penalty, penalty)))
         if self._verbose:
             self.parameter_history.append(self._parameters, len(self.cost_history))

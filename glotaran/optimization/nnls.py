@@ -28,6 +28,7 @@ def residual_nnls(matrix: ArrayLike, data: ArrayLike) -> tuple[ArrayLike, ArrayL
     tuple[ArrayLike, ArrayLike]
         The clps and the residual.
     """
-    clp, _ = nnls(matrix, data)
+    # Difficult correlated designs can exceed SciPy's default 3 * n iterations.
+    clp, _ = nnls(matrix, data, maxiter=6 * np.asarray(matrix).shape[1])
     residual = data - np.dot(matrix, clp)
     return clp, residual

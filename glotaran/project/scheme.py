@@ -6,13 +6,16 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
 
+import numpy as np
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 from glotaran.io import load_dataset
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
+from glotaran.model.parameter_penalties import EqualParameterPenalty
 from glotaran.optimization import Optimization
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
@@ -34,6 +37,21 @@ class Scheme(BaseModel):
 
     experiments: dict[str, ExperimentModel]
     library: ModelLibrary
+    parameter_penalties: list[EqualParameterPenalty] = Field(default_factory=list)
+    x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+
+    @field_validator("x_scale")
+    @classmethod
+    def validate_x_scale(cls, value):
+        if isinstance(value, str):
+            if value == "jac":
+                return value
+            raise ValueError("x_scale must be 'jac' or contain finite positive values.")
+        values = list(value.values()) if isinstance(value, dict) else value
+        if np.any(~np.isfinite(values)) or np.any(np.asarray(values) <= 0):
+            raise ValueError("x_scale must contain finite positive values.")
+        return value
+
     source_path: Path | None = Field(
         default=None,
         description="Path to the source file from which this scheme was loaded.",
@@ -50,7 +68,9 @@ class Scheme(BaseModel):
             for d in e.datasets.values():
                 if isinstance(d.data, str):
                     d.data = load_dataset(d.data)
-        return cls(experiments=experiments, library=library, source_path=source_path)
+        return cls(
+            **(spec | {"experiments": experiments, "library": library, "source_path": source_path})
+        )
 
     def _load_data(self, datasets: Mapping[str, xr.Dataset]) -> None:
         try:
@@ -77,6 +97,7 @@ class Scheme(BaseModel):
         ftol: float | None = 1e-8,
         gtol: float | None = 1e-8,
         xtol: float | None = 1e-8,
+        x_scale: float | Literal["jac"] | list[float] | dict[str, float] | None = None,
         optimization_method: Literal[
             "TrustRegionReflection",
             "Dogbox",
@@ -95,6 +116,7 @@ class Scheme(BaseModel):
             ftol=ftol,
             gtol=gtol,
             xtol=xtol,
+            x_scale=x_scale,
             optimization_method=optimization_method,
         )
         return scheme._run_optimization(optimization, parameters, dry_run=dry_run)  # noqa: SLF001
@@ -128,6 +150,13 @@ class Scheme(BaseModel):
         scheme._load_data(  # noqa: SLF001
             {label: data.copy(deep=True) for label, data in load_datasets(datasets).items()}
         )
+        # Project.optimize enters here directly, so defaults must be applied in
+        # the common path rather than only in Scheme.optimize.
+        x_scale = optimization_kwargs.get("x_scale")
+        optimization_kwargs["x_scale"] = (
+            scheme.x_scale if x_scale is None else self.validate_x_scale(x_scale)
+        )
+        optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
         optimization = Optimization(
             models=list(scheme.experiments.values()),
             parameters=parameters,

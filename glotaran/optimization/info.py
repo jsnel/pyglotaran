@@ -44,6 +44,8 @@ class OptimizerSettings(BaseModel):
     gtol: float | None
     xtol: float | None
     maximum_number_function_evaluations: int | None
+    # Default supports loading results and records written before x_scale existed.
+    x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
 
 
 class OptimizationInfo(BaseModel):
@@ -112,6 +114,7 @@ class OptimizationInfo(BaseModel):
     :math:`rms = \sqrt{\chi^2_{red}}`
     """
     additional_penalty: float | None = None
+    additional_parameter_penalty: list[float] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

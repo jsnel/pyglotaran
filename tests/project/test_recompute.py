@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import warnings
 from typing import TYPE_CHECKING
 
@@ -94,6 +95,46 @@ def test_recompute_reproduces_the_fit(
         f"{LABEL}.root_mean_square_error",
         f"{LABEL}.weighted_root_mean_square_error",
     }
+
+
+def test_parameter_penalty_and_x_scale_record_export_and_recompute(
+    project: Project, data: xr.Dataset
+):
+    """Project and Scheme use the same penalties, and record/export can recompute them."""
+    spec = copy.deepcopy(SCHEME_DICT)
+    spec["parameter_penalties"] = [{
+        "type": "equal", "source": "rates.species_1", "target": "rates.species_2",
+        "parameter": 1., "weight": 0.3,
+    }]
+    spec["x_scale"] = "jac"
+    scheme = Scheme.from_dict(spec)
+    direct = scheme.optimize(PARAMETERS, {LABEL: data}, maximum_number_function_evaluations=2,
+                             verbose=False, raise_exception=True)
+    recorded = project.optimize(scheme, PARAMETERS, {LABEL: data},
+                                maximum_number_function_evaluations=2,
+                                verbose=False, raise_exception=True)
+    assert recorded.optimization_info.cost == direct.optimization_info.cost
+    assert recorded.optimization_info.additional_parameter_penalty == (
+        direct.optimization_info.additional_parameter_penalty
+    )
+    assert recorded.optimizer_settings.x_scale == "jac"
+    assert recorded.scheme.parameter_penalties == scheme.parameter_penalties
+    assert recorded.record is not None
+    record_metadata = load_dict(recorded.record.path / "record.yml", is_file=True)
+    assert record_metadata["optimizer"]["x_scale"] == "jac"
+    recomputed = project.recompute(recorded.record, {LABEL: data})
+    assert recomputed.optimizer_settings.x_scale == "jac"
+    assert recomputed.optimization_info.cost == recorded.optimization_info.cost
+    assert recomputed.optimization_info.additional_parameter_penalty == (
+        recorded.optimization_info.additional_parameter_penalty
+    )
+    exported = project.export(recorded, "penalized")
+    restored = load_result(exported)
+    assert restored.scheme.parameter_penalties == scheme.parameter_penalties
+    assert restored.optimizer_settings.x_scale == "jac"
+    assert project.recompute(exported, {LABEL: data}).optimization_info.cost == (
+        recorded.optimization_info.cost
+    )
 
 
 def test_recompute_by_id_and_path_writes_no_record(
