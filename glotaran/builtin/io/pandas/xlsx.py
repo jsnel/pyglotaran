@@ -38,7 +38,9 @@ class ExcelProjectIo(ProjectIoInterface):
         )
         return Parameters.from_dataframe(parameter_df, source=file_name)
 
-    def save_parameters(self, parameters: Parameters, file_name: str) -> None:
+    def save_parameters(
+        self, parameters: Parameters, file_name: str, *, as_optimized: bool = True
+    ) -> None:
         """Save a :class:`Parameters` to a Excel file.
 
         Parameters
@@ -49,7 +51,7 @@ class ExcelProjectIo(ProjectIoInterface):
             File to write the parameters to.
         """
         parameter_df = (
-            parameters.to_dataframe()
+            parameters.to_dataframe(as_optimized=as_optimized)
             .pipe(
                 safe_dataframe_replace,
                 column_name="minimum",
