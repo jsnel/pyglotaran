@@ -243,6 +243,8 @@ def test_global_data():
     assert "decay_independent" in optimized_data
     print(optimized_parameters)
     assert result.success
+    # Starting at the exact solution must not retain a finite-difference perturbation.
+    assert initial_parameters == optimized_parameters
     assert optimized_parameters.close_or_equal(parameters)
 
 
