@@ -189,7 +189,10 @@ def serialize_parameters(value: Parameters, info: SerializationInfo) -> str:
         parameters_plugin = saving_options.get("parameters_plugin", None)
         path = Path(save_folder) / f"{info.field_name}.{parameters_format}"
         path.parent.mkdir(parents=True, exist_ok=True)
-        save_parameters(value, path, format_name=parameters_plugin, allow_overwrite=True)
+        save_parameters(
+            value, path, format_name=parameters_plugin, allow_overwrite=True,
+            as_optimized=info.field_name == "optimized_parameters",
+        )
         return relative_posix_path(path, base_path=Path(save_folder))
     msg = f"SerializationInfo context is missing 'save_folder':\n{info}"
     raise ValueError(msg)
