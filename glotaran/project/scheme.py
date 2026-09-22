@@ -107,6 +107,8 @@ class Scheme(BaseModel):
         gtol: float = 1e-8,
         xtol: float = 1e-8,
         x_scale: float | Literal["jac"] | list[float] | dict[str, float] | None = None,
+        compute_clp_standard_error: bool | None = None,
+        clp_standard_error_finite_difference_relative_step: float | None = None,
         optimization_method: Literal[
             "TrustRegionReflection",
             "Dogbox",
@@ -134,9 +136,17 @@ class Scheme(BaseModel):
             xtol=xtol,
             x_scale=self.x_scale if x_scale is None else self.validate_x_scale(x_scale),
             parameter_penalties=self.parameter_penalties,
-            compute_clp_standard_error=self.compute_clp_standard_error,
+            compute_clp_standard_error=(
+                self.compute_clp_standard_error
+                if compute_clp_standard_error is None
+                else compute_clp_standard_error
+            ),
             clp_standard_error_finite_difference_relative_step=(
                 self.clp_standard_error_finite_difference_relative_step
+                if clp_standard_error_finite_difference_relative_step is None
+                else self.validate_clp_standard_error_step(
+                    clp_standard_error_finite_difference_relative_step
+                )
             ),
             optimization_method=optimization_method,
         )
