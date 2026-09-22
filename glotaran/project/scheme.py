@@ -113,6 +113,8 @@ class Scheme(BaseModel):
         gtol: float | None = 1e-8,
         xtol: float | None = 1e-8,
         x_scale: float | Literal["jac"] | list[float] | dict[str, float] | None = None,
+        compute_clp_standard_error: bool | None = None,
+        clp_standard_error_finite_difference_relative_step: float | None = None,
         optimization_method: Literal[
             "TrustRegionReflection",
             "Dogbox",
@@ -132,6 +134,10 @@ class Scheme(BaseModel):
             gtol=gtol,
             xtol=xtol,
             x_scale=x_scale,
+            compute_clp_standard_error=compute_clp_standard_error,
+            clp_standard_error_finite_difference_relative_step=(
+                clp_standard_error_finite_difference_relative_step
+            ),
             optimization_method=optimization_method,
         )
         return scheme._run_optimization(optimization, parameters, dry_run=dry_run)  # noqa: SLF001
@@ -172,12 +178,16 @@ class Scheme(BaseModel):
             scheme.x_scale if x_scale is None else self.validate_x_scale(x_scale)
         )
         optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
-        # Project.optimize enters here directly too; retain scheme uncertainty
-        # settings for both public fitting paths.
-        optimization_kwargs.setdefault("compute_clp_standard_error", scheme.compute_clp_standard_error)
-        optimization_kwargs.setdefault(
-            "clp_standard_error_finite_difference_relative_step",
-            scheme.clp_standard_error_finite_difference_relative_step,
+        # Project.optimize enters here directly too. Resolve None as the scheme
+        # default and persist explicit per-fit overrides in optimizer settings.
+        clp_enabled = optimization_kwargs.get("compute_clp_standard_error")
+        optimization_kwargs["compute_clp_standard_error"] = (
+            scheme.compute_clp_standard_error if clp_enabled is None else clp_enabled
+        )
+        step = optimization_kwargs.get("clp_standard_error_finite_difference_relative_step")
+        optimization_kwargs["clp_standard_error_finite_difference_relative_step"] = (
+            scheme.clp_standard_error_finite_difference_relative_step
+            if step is None else self.validate_clp_standard_error_step(step)
         )
         optimization = Optimization(
             models=list(scheme.experiments.values()),

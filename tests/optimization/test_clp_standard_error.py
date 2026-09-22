@@ -17,6 +17,7 @@ from glotaran.optimization.clp_standard_error import calculate_clp_standard_erro
 from glotaran.optimization.objective import FitDecomposition
 from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
+from glotaran.project.scheme import Scheme
 from glotaran.simulation import simulate
 from tests.optimization.library import test_library
 
@@ -132,15 +133,19 @@ def test_scheme_optimizer_attaches_unlinked_clp_standard_errors() -> None:
     data_model.data = simulate(data_model, test_library, parameters, axes, clp)
     data_model.data["data"].data += 1e-3 * np.sin(np.arange(120)).reshape(40, 3)
 
-    _, results, info = Optimization(
-        models=[experiment],
-        parameters=Parameters.from_dict({"rates": {"decay": [0.82, 0.05]}}),
-        library=test_library,
+    scheme = Scheme.model_construct(library=test_library, experiments={"experiment": experiment})
+    result = scheme.optimize(
+        Parameters.from_dict({"rates": {"decay": [0.82, 0.05]}}),
+        {"dataset": data_model.data},
         compute_clp_standard_error=True,
+        clp_standard_error_finite_difference_relative_step=2e-6,
         verbose=False,
         raise_exception=True,
         maximum_number_function_evaluations=5,
-    ).run()
+    )
+    results = result.optimization_results
+    info = result.optimization_info
+    assert info.clp_standard_error_finite_difference_relative_step == 2e-6
 
     uncertainty = results["dataset"].fit_decomposition.clp_standard_error
     assert uncertainty is not None

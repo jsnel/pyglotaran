@@ -151,6 +151,29 @@ def test_project_uses_scheme_clp_standard_error_settings(project: Project, data:
     assert result.optimization_results[LABEL].fit_decomposition.clp_standard_error is not None
 
 
+def test_project_clp_standard_error_overrides_are_recorded(project: Project, data: xr.Dataset):
+    """Per-fit overrides survive recording, export and dry-run recomputation."""
+    scheme = Scheme.from_dict(SCHEME_DICT)
+    result = project.optimize(
+        scheme, PARAMETERS, {LABEL: data}, compute_clp_standard_error=True,
+        clp_standard_error_finite_difference_relative_step=2e-6,
+        maximum_number_function_evaluations=2, verbose=False, raise_exception=True,
+    )
+    assert result.optimizer_settings.compute_clp_standard_error is True
+    assert result.optimizer_settings.clp_standard_error_finite_difference_relative_step == 2e-6
+    assert result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert result.record is not None
+    record = load_dict(result.record.path / "record.yml", is_file=True)
+    assert record["optimizer"]["compute_clp_standard_error"] is True
+    assert record["optimizer"]["clp_standard_error_finite_difference_relative_step"] == 2e-6
+    reconstructed = project.recompute(result.record, {LABEL: data})
+    assert reconstructed.optimizer_settings == result.optimizer_settings
+    exported = project.export(result, "clp-uncertainty")
+    restored = load_result(exported)
+    assert restored.optimizer_settings == result.optimizer_settings
+    assert project.recompute(exported, {LABEL: data}).optimizer_settings == result.optimizer_settings
+
+
 def test_recompute_by_id_and_path_writes_no_record(
     project: Project, scheme: Scheme, data: xr.Dataset
 ):
