@@ -294,6 +294,28 @@ class Parameters:
             {label: parameter.model_copy() for label, parameter in self._parameters.items()}
         )
 
+    def validate_bounds(self, *, raise_exception: bool = False) -> list[str]:
+        """Report initial values outside declared bounds without changing them.
+
+        Missing (NaN) values are left to model parameter resolution. This check
+        includes fixed parameters, whose bounds SciPy does not inspect.
+        """
+        issues = []
+        for parameter in self.all():
+            if parameter.value < parameter.minimum:
+                issues.append(
+                    f"Parameter '{parameter.label}' value {parameter.value} is below "
+                    f"minimum {parameter.minimum}."
+                )
+            if parameter.value > parameter.maximum:
+                issues.append(
+                    f"Parameter '{parameter.label}' value {parameter.value} is above "
+                    f"maximum {parameter.maximum}."
+                )
+        if issues and raise_exception:
+            raise ValueError("\n".join(issues))
+        return issues
+
     def all(self) -> Generator[Parameter]:
         """Iterate over all parameters.
 
