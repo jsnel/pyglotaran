@@ -75,6 +75,6 @@ def calculate_matrix_gaussian_activation(
             times,
             all_centers[n_w],
             all_widths[n_w],
-            scales,
+            scales[n_w],
             backsweep_period,
         )

@@ -12,8 +12,10 @@ import xarray as xr
 from glotaran.builtin.elements.kinetic.kinetic import Kinetic
 from glotaran.builtin.elements.kinetic.matrix import calculate_matrix_gaussian_activation
 from glotaran.builtin.elements.kinetic.matrix import calculate_matrix_gaussian_activation_on_index
+from glotaran.builtin.items.activation import Activation
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import MultiGaussianActivation
+from glotaran.builtin.items.activation import MultiMultiGaussianActivation
 from glotaran.model.element import ExtendableElement
 from glotaran.model.item import ParameterType  # noqa:F401
 
@@ -73,18 +75,9 @@ class KineticElement(ExtendableElement, Kinetic):
         compartments = self.compartments
         matrices = []
         for activation in model.activations.values():
-            initial_concentrations = np.array(
-                [float(activation.compartments.get(label, 0)) for label in compartments]
+            initial_concentrations = self._normalized_initial_concentrations(
+                activation, compartments
             )
-            normalized_compartments = [
-                c not in activation.not_normalized_compartments for c in compartments
-            ]
-            normalization_sum = sum(
-                float(value)
-                for compartment, value in activation.compartments.items()
-                if compartment not in activation.not_normalized_compartments
-            )
-            initial_concentrations[normalized_compartments] /= normalization_sum
             rates = self.calculate(initial_concentrations)
 
             matrix = (
@@ -107,6 +100,37 @@ class KineticElement(ExtendableElement, Kinetic):
             self.combine_matrices, matrices
         )
 
+    @staticmethod
+    def _normalized_initial_concentrations(
+        activation: Activation, compartments: list[str]
+    ) -> np.ndarray:
+        """Return the activation concentrations in the same form used for fitting.
+
+        Activation amplitudes may include compartments that are not part of this
+        kinetic element.  They still contribute to the normalization, while
+        ``not_normalized_compartments`` keeps selected entries on their original
+        scale.  Keeping this calculation in one helper prevents result metadata
+        from reporting a different initial state than the matrix calculation.
+        """
+        initial_concentrations = np.array(
+            [float(activation.compartments.get(label, 0)) for label in compartments],
+            dtype=np.float64,
+        )
+        normalized_compartments = np.asarray(
+            [c not in activation.not_normalized_compartments for c in compartments],
+            dtype=bool,
+        )
+        normalization_sum = sum(
+            float(value)
+            for compartment, value in activation.compartments.items()
+            if compartment not in activation.not_normalized_compartments
+        )
+        if normalized_compartments.any() and np.isclose(normalization_sum, 0.0):
+            msg = "Activation concentrations cannot be normalized because their sum is zero."
+            raise ValueError(msg)
+        initial_concentrations[normalized_compartments] /= normalization_sum
+        return initial_concentrations
+
     def calculate_matrix_gaussian_activation(
         self,
         activation: MultiGaussianActivation,
@@ -121,7 +145,11 @@ class KineticElement(ExtendableElement, Kinetic):
         if index_dependent:
             matrix_shape = (global_axis.size, *matrix_shape)  # type:ignore[assignment]
         matrix = np.zeros(matrix_shape, dtype=np.float64)
-        scales = np.array([p.scale for p in (parameters[0] if index_dependent else parameters)])  # type:ignore[union-attr]
+        scales = (
+            np.array([[p.scale for p in ps] for ps in parameters])
+            if index_dependent
+            else np.array([p.scale for p in parameters])
+        )  # type:ignore[union-attr]
         if index_dependent:
             calculate_matrix_gaussian_activation(
                 matrix,
@@ -142,8 +170,11 @@ class KineticElement(ExtendableElement, Kinetic):
                 scales,
                 parameters[0].backsweep_period,  # type:ignore[attr-defined]
             )
-        if activation.normalize:
-            matrix /= np.sum(scales)
+        if activation.normalize and not isinstance(activation, MultiMultiGaussianActivation):
+            if index_dependent:
+                matrix /= np.sum(scales, axis=1)[:, None, None]
+            else:
+                matrix /= np.sum(scales)
 
         return matrix
 
@@ -183,8 +214,8 @@ class KineticElement(ExtendableElement, Kinetic):
         kinetic_amplitudes_list = []
         activation_names = list(model.activations.keys())
         for activation in model.activations.values():
-            initial_concentration_activation = np.array(
-                [float(activation.compartments.get(label, 0)) for label in self.compartments]
+            initial_concentration_activation = self._normalized_initial_concentrations(
+                activation, self.compartments
             )
             initial_concentrations_list.append(initial_concentration_activation)
             a_matrix = self.a_matrix(initial_concentration_activation)
