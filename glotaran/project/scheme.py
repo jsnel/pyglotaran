@@ -15,7 +15,7 @@ from pydantic import field_validator
 from glotaran.io import load_dataset
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
-from glotaran.model.parameter_penalties import EqualParameterPenalty
+from glotaran.model.parameter_penalties import EqualParameterPenalty  # noqa: TC001
 from glotaran.optimization import Optimization
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
@@ -39,17 +39,32 @@ class Scheme(BaseModel):
     library: ModelLibrary
     parameter_penalties: list[EqualParameterPenalty] = Field(default_factory=list)
     x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+    compute_clp_standard_error: bool = False
+    clp_standard_error_finite_difference_relative_step: float = 1e-6
 
     @field_validator("x_scale")
     @classmethod
-    def validate_x_scale(cls, value):
+    def validate_x_scale(
+        cls,
+        value: float | Literal["jac"] | list[float] | dict[str, float],
+    ) -> float | Literal["jac"] | list[float] | dict[str, float]:
         if isinstance(value, str):
             if value == "jac":
                 return value
-            raise ValueError("x_scale must be 'jac' or contain finite positive values.")
+            msg = "x_scale must be 'jac' or contain finite positive values."
+            raise ValueError(msg)
         values = list(value.values()) if isinstance(value, dict) else value
         if np.any(~np.isfinite(values)) or np.any(np.asarray(values) <= 0):
-            raise ValueError("x_scale must contain finite positive values.")
+            msg = "x_scale must contain finite positive values."
+            raise ValueError(msg)
+        return value
+
+    @field_validator("clp_standard_error_finite_difference_relative_step")
+    @classmethod
+    def validate_clp_standard_error_step(cls, value: float) -> float:
+        if not np.isfinite(value) or value <= 0:
+            msg = "clp_standard_error_finite_difference_relative_step must be finite and positive."
+            raise ValueError(msg)
         return value
 
     source_path: Path | None = Field(
@@ -157,6 +172,13 @@ class Scheme(BaseModel):
             scheme.x_scale if x_scale is None else self.validate_x_scale(x_scale)
         )
         optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
+        # Project.optimize enters here directly too; retain scheme uncertainty
+        # settings for both public fitting paths.
+        optimization_kwargs.setdefault("compute_clp_standard_error", scheme.compute_clp_standard_error)
+        optimization_kwargs.setdefault(
+            "clp_standard_error_finite_difference_relative_step",
+            scheme.clp_standard_error_finite_difference_relative_step,
+        )
         optimization = Optimization(
             models=list(scheme.experiments.values()),
             parameters=parameters,
