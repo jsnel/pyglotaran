@@ -12,15 +12,15 @@ not the raw list of unmerged commits, define the relevant delta. Existing source
 `devdocs/analysis/scale_list` documents are useful requirements evidence, but describe
 an earlier head and are not a substitute for reviewing the fixed source revision.
 
-## Relevant delta inventory (initial audit)
+## Relevant delta inventory
 
 The source adds per-index dataset scales, paired single-amplitude full models,
 parameter equality penalties, relative equal-area penalties, optimizer x_scale,
 CLP standard errors, extended Gaussian IRFs and width dispersion, initial-concentration
 normalization controls, coherent-artifact orders four/five, parameter-table improvements,
 and a Hamamatsu ITEX IMG loader. It also changes numerical guards, validation,
-result reporting and persistence. The final inventory will classify every relevant
-feature as newly ported, already supported, or intentionally different with evidence.
+result reporting and persistence. The [final inventory](DELTA.md) classifies the relevant behavior and
+the [usage guide](USAGE.md) maps it to staging APIs.
 
 Do not transplant v0.7 provider architecture or source CI/dependency configuration.
 Keep staging elements, experiment/data models, optimization objectives and typed
@@ -62,4 +62,7 @@ reference inputs and author notebooks; use fresh timestamped evidence directorie
 
 ## Status
 
-Plan committed before implementation. Detailed audit and implementation in progress.
+Plan committed before implementation as `ded0463b`. Steps 1–5 are implemented in
+separate checkpoints, culminating in `d38d973b`. Full core tests and fresh common
+notebook acceptance pass; the separate runtime benchmark is completing. See
+[EVIDENCE.md](EVIDENCE.md) for exact sources, feature tests and scientific limits.

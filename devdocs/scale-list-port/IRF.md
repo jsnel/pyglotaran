@@ -40,8 +40,10 @@ existing order 1 through 3 expressions are unchanged.
 Kinetic matrix construction and result creation now share one normalization
 helper. Activation entries outside the kinetic element still contribute to the
 normalization denominator, matching the existing v0.8 behavior; selected
-`not_normalized_compartments` remain on their original scale. A zero denominator
-is rejected with a clear error instead of producing non-finite matrices. Result
+`not_normalized_compartments` remain on their original scale. A numerically near-zero denominator
+is rejected with a clear error instead of producing unstable or non-finite matrices.
+This guard uses NumPy `isclose(sum, 0)`; normalized input populations should use
+a sensible common scale (for example, fractions summing to one). Result
 metadata therefore reports the same normalized initial concentrations used by
 the fit.
 

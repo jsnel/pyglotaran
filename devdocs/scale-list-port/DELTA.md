@@ -32,7 +32,8 @@ relations and constraints, and rejects NNLS opt-in because its CLP solve is not 
 variable-projection solve assumed by the covariance formula. See
 [`CLP_UNCERTAINTY.md`](CLP_UNCERTAINTY.md).
 
-The source prototype's private provider access and shared-object mutation were not carried over.
+The source prototype's private provider access and unrestored shared-object mutation were not
+carried over.
 Staging exposes read-only objective data/model accessors, evaluates finite differences in the same
 coordinates used by SciPy (including log coordinates for non-negative parameters), and restores
 parameter values after every perturbed evaluation. This makes the uncertainty result reviewable and
@@ -44,3 +45,36 @@ markdown API has no staging equivalent; and full-model CLP penalties remain outs
 global objective. Parameter table reporting uses the staging-native optimized table, and result
 saving uses its native saving options to suppress selected fields. These cases are documented
 rather than made to look source-identical through post-processing.
+
+## Coverage decisions
+
+| Source behavior | Port decision and evidence |
+| --- | --- |
+| Per-coordinate `scale_list`, including fitted parameter labels | Native dynamic parameter references; unlinked/linked/full matrices, simulation and result metadata. Linked free-scale recovery prevents accidental numeric caching. See [SCALING.md](SCALING.md). |
+| Single-amplitude global models | Native paired column composition, diagonal reported amplitudes and paired CLP/degrees-of-freedom counts; independent synthetic endpoint fit. |
+| Equal-parameter soft constraints | Two symmetric ratio residuals, once per overall optimization; fixed-length absolute fallback near zero and final diagnostics. |
+| Relative equal-area penalties | Ratio residual with absolute fallback near zero; typed source/target area diagnostics in optimization info. Existing global-objective CLP-penalty restriction remains. |
+| Optimizer `x_scale` | Persisted Scheme field plus per-call override; scalar, `jac`, ordered vector, and a validated label mapping. |
+| CLP standard errors | Opt-in Scheme settings and fit keyword overrides, native split result persistence, linear plus nonlinear covariance propagation. NNLS is explicitly rejected. See [CLP_UNCERTAINTY.md](CLP_UNCERTAINTY.md). |
+| Spectral Gaussian IRF extensions | Existing Gaussian types gain numeric-knot cubic splines, skewed-Gaussian width corrections and the source wavenumber alias; migration maps source spectral type aliases. |
+| Multi/multi, convolved and normalized-convolved IRFs | Registered native activation types with nested parameter discovery, relative centers/scales, positional broadening and area normalization. See [IRF.md](IRF.md). |
+| Coherent artifacts through order five | Native third/fourth Gaussian derivatives, preserving the previous first three orders. |
+| Initial-concentration checks and reporting | Native compartment mapping makes source parallel-list length mismatches structurally unnecessary; external translation validates the lists. Matrix and reporting paths share normalization and preserve exclusions. |
+| Parameter table input validation | Duplicate normalized labels rejected, unknown columns warned, caller tables preserved and derived T-values ignored on input. |
+| Optimized parameter tables | Optional T-values and blank fixed-parameter errors across CSV/TSV/XLSX/ODS; initial tables retain original values/metadata. |
+| Initial-value bounds | Public `Parameters.validate_bounds`, invoked before optimization; diagnostics rather than silently clipping input. |
+| Hamamatsu ITEX IMG | Registered native loader with calibration, ROI/reversal and 8/16/32-bit data tests. |
+| Suppressing saved datasets | Existing v0.8 `SAVING_OPTIONS_MINIMAL` provides the equivalent behavior; exclusion filters are not replaced by source inclusion-filter semantics. |
+| NNLS iteration budget | Source `6 * number_of_columns` maximum iteration budget retained in the native solver. |
+| KMatrix markdown changes | Old v0.7 presentation API has no native counterpart; not reintroduced. Numerical kinetic functionality is handled by native elements. |
+| Source notebooks, analysis notes, CI and dependency pins | Used as requirements/reference evidence, not copied wholesale into the v0.8 package. Native docs and focused fixtures replace prototype architecture notes. Scientific dependencies are unchanged. |
+
+## Intentional correctness changes
+
+The port keeps numeric spline knots out of parameter resolution, recognizes convolution
+width as index-dependent without requiring an unrelated shift, and uses the correct
+per-index IRF scale row in kinetic matrices. It restores SciPy's returned optimum before
+constructing final results. Uncertainty probes use optimizer coordinates, including log
+coordinates, and restore shared parameter values even after exceptions. Native YAML
+lists of mappings serialize with valid indentation. These are implementation fixes,
+not post-processing to force agreement between non-identifiable parameters.
