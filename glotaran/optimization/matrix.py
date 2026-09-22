@@ -11,6 +11,7 @@ import numpy as np
 import xarray as xr
 
 from glotaran.model.data_model import DataModel
+from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import iterate_data_model_elements
 from glotaran.model.data_model import iterate_data_model_global_elements
 from glotaran.model.errors import GlotaranModelError
@@ -139,13 +140,19 @@ class OptimizationMatrix:
         apply_weight: bool = True,
         global_matrix: bool = False,
     ) -> OptimizationMatrix:
-        return cls.from_data_model(
+        matrix = cls.from_data_model(
             data.model,
             data.global_axis,
             data.model_axis,
             data.weight if apply_weight else None,
             global_matrix=global_matrix,
         )
+        if not global_matrix:
+            if data.dataset_scale is not None:
+                matrix = matrix.scale(data.dataset_scale)
+            if data.scale_list is not None:
+                matrix = matrix.scale_by_global_indices(data.scale_list)
+        return matrix
 
     @classmethod
     def from_global_data(
@@ -155,6 +162,10 @@ class OptimizationMatrix:
         OptimizationMatrix,
         OptimizationMatrix,
     ]:
+        if is_data_model_single_amplitude(data.model) and not data.model.global_elements:
+            msg = "A single-amplitude model requires global elements to be configured."
+            raise GlotaranModelError(msg)
+
         matrix = cls.from_data(data, apply_weight=False)
         global_matrix = cls.from_data(data, apply_weight=False, global_matrix=True)
 
@@ -162,27 +173,73 @@ class OptimizationMatrix:
             msg = "Index dependent global matrices are not supported."
             raise GlotaranModelError(msg)
 
-        clp_axis = [
-            label
-            for gl in global_matrix.clp_axis
-            for label in [f"{gl}@{ml}" for ml in matrix.clp_axis]
-        ]
-
-        array = (
-            np.concatenate(
+        if is_data_model_single_amplitude(data.model):
+            if len(global_matrix.clp_axis) != len(matrix.clp_axis):
+                msg = (
+                    "A single-amplitude model requires the model and global matrices to "
+                    "have the same number of components."
+                )
+                raise GlotaranModelError(msg)
+            clp_axis = [
+                f"{global_label}@{model_label}"
+                for global_label, model_label in zip(
+                    global_matrix.clp_axis, matrix.clp_axis, strict=True
+                )
+            ]
+            model_array = (
+                matrix.array
+                if matrix.is_index_dependent
+                else np.broadcast_to(
+                    matrix.array,
+                    (data.global_axis.size, matrix.model_axis_size, len(matrix.clp_axis)),
+                )
+            )
+            array = np.concatenate(
                 [
-                    np.kron(global_matrix.array[i, :], matrix.array[i, :, :])
+                    model_array[i, :, :] * global_matrix.array[i, :][np.newaxis, :]
                     for i in range(data.global_axis.size)
                 ]
             )
-            if matrix.is_index_dependent
-            else np.kron(global_matrix.array, matrix.array)
-        )
+        else:
+            clp_axis = [
+                label
+                for gl in global_matrix.clp_axis
+                for label in [f"{gl}@{ml}" for ml in matrix.clp_axis]
+            ]
+            array = (
+                np.concatenate(
+                    [
+                        np.kron(global_matrix.array[i, :], matrix.array[i, :, :])
+                        for i in range(data.global_axis.size)
+                    ]
+                )
+                if matrix.is_index_dependent
+                else np.kron(global_matrix.array, matrix.array)
+            )
 
         if data.flat_weight is not None:
             array *= data.flat_weight[:, np.newaxis]
 
         return matrix, global_matrix, cls(clp_axis, array)
+
+    def scale_by_global_indices(self, scales: ArrayLike) -> OptimizationMatrix:
+        """Apply one dataset scale to each global-axis matrix slice.
+
+        A matrix without index dependence is promoted to an index-dependent matrix so
+        callers can use the same per-index representation for linked and unlinked data.
+        """
+        scales = np.asarray(scales, dtype=np.float64)
+        if scales.ndim != 1:
+            msg = "Global dataset scales must be a one-dimensional sequence."
+            raise ValueError(msg)
+        if self.is_index_dependent:
+            if self.global_axis_size != scales.size:
+                msg = "The number of global dataset scales does not match the matrix axis."
+                raise ValueError(msg)
+            array = self.array * scales[:, np.newaxis, np.newaxis]
+        else:
+            array = self.array[np.newaxis, :, :] * scales[:, np.newaxis, np.newaxis]
+        return replace(self, array=array)
 
     @classmethod
     def from_linked_data(

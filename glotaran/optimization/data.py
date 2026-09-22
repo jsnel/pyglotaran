@@ -16,6 +16,7 @@ from glotaran.model.data_model import is_data_model_global
 
 if TYPE_CHECKING:
     from glotaran.model.experiment_model import ExperimentModel
+    from glotaran.model.item import ParameterType
     from glotaran.parameter import Parameter
     from glotaran.typing.types import ArrayLike
 
@@ -44,7 +45,7 @@ class OptimizationDataProvider:
 class OptimizationData(OptimizationDataProvider):
     """A class to provide prepared data for optimization."""
 
-    def __init__(self, model: DataModel) -> None:
+    def __init__(self, model: DataModel, *, scale: ParameterType | None = None) -> None:
         """Initialize a data provider for an experiment.
 
         Parameters
@@ -63,6 +64,12 @@ class OptimizationData(OptimizationDataProvider):
         self._model_axis = data.coords[self._model_dimension].data
         self._global_dimension = self.infer_global_dimension(self._model_dimension, data.data.dims)
         self._global_axis = data.coords[self._global_dimension].data
+        self._dataset_scale = scale
+        # Keep the resolved Parameter objects rather than a numeric snapshot. The optimizer
+        # updates those objects between objective evaluations, so the matrix provider must
+        # resolve their current values each time ``scale_list`` is requested.
+        self._scale_list = model.scale_list
+        self._resolve_scale_list(self._scale_list)
 
         self._data: ArrayLike = self.get_from_dataset(data, "data")  # type:ignore[assignment]
         self._flat_data = None
@@ -123,12 +130,35 @@ class OptimizationData(OptimizationDataProvider):
         return self._model_dimension
 
     @property
+    def scale_list(self) -> ArrayLike | None:
+        """Per-global-index dataset scales, resolved to numeric values."""
+        return self._resolve_scale_list(self._scale_list)
+
+    @property
+    def dataset_scale(self) -> float | None:
+        """Resolve the optional scalar scale for this unlinked dataset."""
+        if self._dataset_scale is None:
+            return None
+        return float(getattr(self._dataset_scale, "value", self._dataset_scale))
+
+    @property
     def weight(self) -> ArrayLike | None:
         return self._weight
 
     @property
     def flat_weight(self) -> ArrayLike | None:
         return self._flat_weight
+
+    def _resolve_scale_list(self, scale_list: list[Any] | None) -> ArrayLike | None:
+        if scale_list is None:
+            return None
+        if len(scale_list) != self._global_axis.size:
+            msg = (
+                f"Dataset scale_list length ({len(scale_list)}) does not match the number "
+                f"of global axis points ({self._global_axis.size})."
+            )
+            raise ValueError(msg)
+        return np.asarray([float(getattr(value, "value", value)) for value in scale_list])
 
     def get_model_weight(self, model: DataModel) -> ArrayLike | None:
         """Add model weight to data.
