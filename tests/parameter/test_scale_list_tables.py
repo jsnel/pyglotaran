@@ -44,3 +44,11 @@ def test_near_zero_standard_error_does_not_report_t_value():
     parameters = Parameters.from_list([["a", 4]])
     parameters.get("a").standard_error = 0
     assert np.isnan(parameters.to_dataframe(as_optimized=True)["T-value"].iloc[0])
+
+
+def test_bounds_validation_reports_fixed_parameters_without_clipping():
+    parameters = Parameters.from_list([["a", 4, {"max": 3, "vary": False}]])
+    assert "above maximum" in parameters.validate_bounds()[0]
+    with pytest.raises(ValueError, match="above maximum"):
+        parameters.validate_bounds(raise_exception=True)
+    assert parameters.get("a").value == 4
