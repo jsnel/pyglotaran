@@ -83,5 +83,24 @@ two-dataset drift is 8.81932e-6 against 2e-5. Existing secondary decomposition a
 identifiability qualifications still apply. This is acceptance of the established
 contract, not an unconditional merge or scientific-convergence sign-off.
 
-The separate report-only runtime benchmark is completing. See the workspace
-issue `issues/scale-list-staging-port.md` for final workload and report details.
+The separate standard benchmark completed successfully: 12 workers, 150 timed
+samples, 15 fit summaries, `REPORT_ONLY`. Each branch ran one warm-up and five
+timed repetitions in fresh processes with one thread; branch order alternated.
+Every worker used the same branch-specific core and lockfile hashes.
+
+- Raw: `validation/benchmarks/raw/v07-v08-scale-list-20260922-024526/`
+- Report: `validation/benchmarks/v07-v08-scale-list-20260922-024526/runtime.json`
+- Manifest SHA-256: `0fa26a041487bf135cd07f0e9cca11ffb02bc8fc5820854b6df838179e23fca2`
+
+Evaluation counts match for 14/15 fits. Spectral guidance uses 23 reference versus
+20 staging evaluations and is not an implementation-performance comparison.
+Matching-workload staging/main mean-runtime ratios span 0.723–2.840. These are
+observations on different installed scientific stacks, not an isolated causal
+measurement of this port or a release gate. The full JSON/CSV report preserves
+means, standard deviations, individual samples and workload warnings.
+
+After all runs, one mixed newline in the checkout was normalized for Ruff.
+The committed file content did not change; the verification artifact
+`validation/runs/scale-list-port-20260922-015900/checkout-newline-normalization.json`
+records both raw tree hashes and identical canonical content. All 47 changed
+Python files pass final lint and formatting checks.

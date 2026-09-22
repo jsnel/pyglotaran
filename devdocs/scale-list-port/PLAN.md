@@ -62,7 +62,9 @@ reference inputs and author notebooks; use fresh timestamped evidence directorie
 
 ## Status
 
-Plan committed before implementation as `ded0463b`. Steps 1–5 are implemented in
-separate checkpoints, culminating in `d38d973b`. Full core tests and fresh common
-notebook acceptance pass; the separate runtime benchmark is completing. See
-[EVIDENCE.md](EVIDENCE.md) for exact sources, feature tests and scientific limits.
+All seven steps are complete. The plan was committed before implementation as
+`ded0463b`, with separate implementation checkpoints through `d38d973b`. Full core
+tests, fresh common notebook acceptance, dedicated source-feature comparisons and
+the complete report-only runtime benchmark pass. Later commits record documentation
+and evidence. See [EVIDENCE.md](EVIDENCE.md) for exact sources, feature tests,
+workload differences and scientific limits.
