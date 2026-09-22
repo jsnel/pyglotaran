@@ -34,7 +34,8 @@ if TYPE_CHECKING:
 class OptimizerSettings(BaseModel):
     """Settings passed to the optimizer.
 
-    The fields have no defaults, so that saving a result with ``exclude_defaults`` keeps them.
+    Core settings have no defaults, so saving with ``exclude_defaults`` keeps them.
+    Later settings have defaults so results written before they existed still load.
     A tolerance of ``None`` disables that termination condition in SciPy.
     """
 
@@ -47,6 +48,8 @@ class OptimizerSettings(BaseModel):
     maximum_number_function_evaluations: int | None
     # Default supports loading results and records written before x_scale existed.
     x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+    compute_clp_standard_error: bool = False
+    clp_standard_error_finite_difference_relative_step: float = 1e-6
 
 
 class OptimizationInfo(BaseModel):

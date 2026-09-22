@@ -14,6 +14,7 @@ result = scheme.optimize(
 errors = result.optimization_results["sample"].fit_decomposition.clp_standard_error
 ```
 
+Both CLP uncertainty settings also accept per-call `scheme.optimize` keyword overrides.
 CLP standard errors are optional and require variable projection. They combine
 conditional linear covariance with nonlinear covariance propagation. They are
 local uncertainty estimates, not proof of parameter identifiability or convergence.

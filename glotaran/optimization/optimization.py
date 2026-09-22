@@ -138,6 +138,10 @@ class Optimization:
             xtol=xtol,
             maximum_number_function_evaluations=maximum_number_function_evaluations,
             x_scale=x_scale,
+            compute_clp_standard_error=compute_clp_standard_error,
+            clp_standard_error_finite_difference_relative_step=(
+                clp_standard_error_finite_difference_relative_step
+            ),
         )
 
         self.cost_history: list[float] = []
