@@ -14,6 +14,7 @@ from glotaran.builtin.elements.kinetic.matrix import calculate_matrix_gaussian_a
 from glotaran.builtin.elements.kinetic.matrix import calculate_matrix_gaussian_activation_on_index
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import MultiGaussianActivation
+from glotaran.builtin.items.activation import MultiMultiGaussianActivation
 from glotaran.model.element import ExtendableElement
 from glotaran.model.item import ParameterType  # noqa:F401
 
@@ -85,6 +86,9 @@ class KineticElement(ExtendableElement, Kinetic):
             for compartment, value in activation.compartments.items()
             if compartment not in activation.not_normalized_compartments
         )
+        if any(normalized_compartments) and np.isclose(normalization_sum, 0.0):
+            msg = "Activation concentrations cannot be normalized because their sum is zero."
+            raise ValueError(msg)
         initial_concentrations[normalized_compartments] /= normalization_sum
         return initial_concentrations
 
@@ -135,7 +139,11 @@ class KineticElement(ExtendableElement, Kinetic):
         if index_dependent:
             matrix_shape = (global_axis.size, *matrix_shape)  # type:ignore[assignment]
         matrix = np.zeros(matrix_shape, dtype=np.float64)
-        scales = np.array([p.scale for p in (parameters[0] if index_dependent else parameters)])  # type:ignore[union-attr]
+        scales = (
+            np.array([[p.scale for p in ps] for ps in parameters])
+            if index_dependent
+            else np.array([p.scale for p in parameters])
+        )  # type:ignore[union-attr]
         if index_dependent:
             calculate_matrix_gaussian_activation(
                 matrix,
@@ -156,8 +164,11 @@ class KineticElement(ExtendableElement, Kinetic):
                 scales,
                 parameters[0].backsweep_period,  # type:ignore[attr-defined]
             )
-        if activation.normalize:
-            matrix /= np.sum(scales)
+        if activation.normalize and not isinstance(activation, MultiMultiGaussianActivation):
+            if index_dependent:
+                matrix /= np.sum(scales, axis=1)[:, None, None]
+            else:
+                matrix /= np.sum(scales)
 
         return matrix
 

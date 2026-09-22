@@ -5,11 +5,13 @@ import pytest
 import xarray as xr
 
 from glotaran.builtin.elements.kinetic import KineticElement
+from glotaran.builtin.elements.kinetic.matrix import calculate_matrix_gaussian_activation_on_index
 from glotaran.builtin.items.activation import Activation
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import InstantActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
+from glotaran.builtin.items.activation import NormConvMultiMultiGaussianActivation
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
@@ -92,6 +94,53 @@ def test_initial_concentration_is_normalized_across_activation_compartments():
     _, matrix = element.calculate_matrix(model, np.array([0]), np.array([0]))
 
     assert matrix[0, 0] == pytest.approx(0.25)
+
+
+def test_zero_initial_concentration_sum_is_rejected():
+    element = KineticElement(label="subset", type="kinetic", rates={("s1", "s1"): 1})
+    model = ActivationDataModel(
+        elements=["subset"],
+        activations={"instant": InstantActivation(type="instant", compartments={"s1": 0})},
+    )
+    with pytest.raises(ValueError, match="sum is zero"):
+        element.calculate_matrix(model, np.array([0]), np.array([0]))
+
+
+def test_grouped_convolution_without_shift_uses_each_index_scale_in_matrix():
+    element = KineticElement(
+        label="single",
+        type="kinetic",
+        rates={("s1", "s1"): 1.0},
+    )
+    activation = NormConvMultiMultiGaussianActivation(
+        type="norm-conv-multi-multi-gaussian",
+        compartments={"s1": 1.0},
+        center=[[0.0]],
+        width=[[0.1]],
+        scale=[[1.0]],
+        convwidth=[0.05, 0.2],
+    )
+    model = ActivationDataModel(elements=["single"], activations={"irf": activation})
+    global_axis = np.array([400.0, 500.0])
+    model_axis = np.linspace(-1.0, 1.0, 31)
+    labels, matrix = element.calculate_matrix(model, global_axis, model_axis)
+    assert labels == ["s1"]
+    assert matrix.shape == (2, model_axis.size, 1)
+
+    parameters = activation.parameters(global_axis)
+    expected = np.zeros_like(matrix)
+    for index, per_index in enumerate(parameters):
+        calculate_matrix_gaussian_activation_on_index(
+            expected[index],
+            np.array([1.0]),
+            model_axis,
+            np.array([per_index[0].center]),
+            np.array([per_index[0].width]),
+            np.array([per_index[0].scale]),
+            per_index[0].backsweep_period,
+        )
+    assert np.allclose(matrix, expected)
+    assert not np.allclose(matrix[0], matrix[1])
 
 
 @pytest.mark.parametrize("decay_method", ["parallel", "sequential", "equilibrium"])

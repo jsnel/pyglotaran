@@ -6,6 +6,8 @@ import xarray as xr
 
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
+from glotaran.builtin.items.activation import MultiMultiGaussianActivation
+from glotaran.builtin.items.activation import NormConvMultiMultiGaussianActivation
 from glotaran.builtin.items.activation.data_model import ActivationDataModel
 from glotaran.model.errors import GlotaranUserError
 
@@ -92,6 +94,85 @@ def test_gaussian_activation_dispersion_reciproke():
     assert parameter[0][0].width == 20
     assert parameter[1][0].center == 1
     assert parameter[1][0].width == 10
+
+
+def test_gaussian_activation_spline_width_dispersion():
+    activation = GaussianActivation(
+        type="gaussian",
+        center=1,
+        width=10,
+        width_dispersion_spline_knots=[300.0, 400.0, 500.0],
+        width_dispersion_spline_values=[1.0, 2.0, 3.0],
+        compartments={},
+    )
+    parameters = activation.parameters(np.array([300.0, 400.0, 500.0]))
+    assert [p[0].width for p in parameters] == pytest.approx([11.0, 12.0, 13.0])
+    assert activation.is_index_dependent()
+
+
+def test_gaussian_activation_spline_width_dispersion_from_wavelength_knots():
+    activation = GaussianActivation(
+        type="gaussian",
+        center=1,
+        width=10,
+        model_dispersion_with_wavenumber=True,
+        width_dispersion_spline_knots=[400.0, 500.0, 600.0],
+        width_dispersion_spline_knots_in_wavelength=True,
+        width_dispersion_spline_values=[1.0, 2.0, 3.0],
+        compartments={},
+    )
+    axis = np.array([400.0, 500.0, 600.0])
+    parameters = activation.parameters(axis)
+    assert [p[0].width for p in parameters] == pytest.approx([11.0, 12.0, 13.0])
+
+
+def test_gaussian_activation_skewed_width_dispersion():
+    activation = GaussianActivation(
+        type="gaussian",
+        center=1,
+        width=10,
+        width_dispersion_skewed_gaussian_amplitude=2.0,
+        width_dispersion_skewed_gaussian_location=400.0,
+        width_dispersion_skewed_gaussian_width=100.0,
+        width_dispersion_skewed_gaussian_skewness=0.0,
+        compartments={},
+    )
+    parameters = activation.parameters(np.array([400.0]))
+    assert parameters[0][0].width == pytest.approx(12.0)
+
+
+def test_multi_multi_gaussian_activation_group_expansion_and_area_normalization():
+    activation = MultiMultiGaussianActivation(
+        type="multi-multi-gaussian",
+        center=[[0.0, 0.1], [1.0]],
+        width=[[0.1, 0.2], [0.4]],
+        scale=[[2.0, 0.5], [4.0]],
+        compartments={},
+    )
+    parameters = activation.parameters()
+    assert [p.center for p in parameters] == pytest.approx([0.0, 0.1, 1.0])
+    assert [p.scale for p in parameters] == pytest.approx([398.9422804, 199.4711402, 797.8845608])
+    assert np.sum([p.scale * abs(p.width) for p in parameters]) * np.sqrt(
+        2 * np.pi
+    ) == pytest.approx(1000.0)
+
+
+def test_norm_conv_multi_multi_gaussian_uses_per_index_broadening_and_normalization():
+    activation = NormConvMultiMultiGaussianActivation(
+        type="norm-conv-multi-multi-gaussian",
+        center=[[0.0]],
+        width=[[0.1]],
+        scale=[[1.0]],
+        convwidth=[0.05, 0.2],
+        compartments={},
+    )
+    parameters = activation.parameters(np.array([0.0, 1.0]))
+    assert parameters[0][0].width == pytest.approx(np.sqrt(0.1**2 + 0.05**2))
+    assert parameters[1][0].width == pytest.approx(np.sqrt(0.1**2 + 0.2**2))
+    for per_index in parameters:
+        normalized_area = np.sum([p.scale * abs(p.width) for p in per_index]) * np.sqrt(2 * np.pi)
+        assert normalized_area == pytest.approx(1000.0)
+    assert parameters[0][0].scale != pytest.approx(parameters[1][0].scale)
 
 
 def test_create_result_gaussian_activation():

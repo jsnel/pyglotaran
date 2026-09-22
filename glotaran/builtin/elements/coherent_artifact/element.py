@@ -33,8 +33,8 @@ class CoherentArtifactElement(Element):
         global_axis: ArrayLike,
         model_axis: ArrayLike,
     ) -> tuple[list[str], ArrayLike]:
-        if not 1 <= self.order <= 3:  # noqa: PLR2004
-            msg = "Coherent artifact order must be between in [1,3]"
+        if not 1 <= self.order <= 5:  # noqa: PLR2004
+            msg = "Coherent artifact order must be between in [1,5]"
             raise GlotaranModelError(msg)
 
         activations = {
@@ -133,4 +133,16 @@ def _calculate_coherent_artifact_matrix_on_index(
     if order > 2:  # noqa: PLR2004
         matrix[:, 2] = (
             matrix[:, 0] * (center**2 - width**2 - 2 * center * axis + axis**2) / width**4
+        )
+
+    if order > 3:  # noqa: PLR2004
+        matrix[:, 3] = (
+            matrix[:, 0] * ((center - axis) ** 3 - 3 * (center - axis) * width**2) / width**6
+        )
+
+    if order > 4:  # noqa: PLR2004
+        matrix[:, 4] = (
+            matrix[:, 0]
+            * ((center - axis) ** 4 - 6 * (center - axis) ** 2 * width**2 + 3 * width**4)
+            / width**8
         )
