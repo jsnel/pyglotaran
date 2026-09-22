@@ -45,6 +45,13 @@ class ExperimentModel(BaseModel):
         default_factory=dict,
         description="The scales of of the datasets in the experiment.",
     )
+    scale_list: dict[str, list[ParameterType]] = Field(
+        default_factory=dict,
+        description=(
+            "Optional per-global-index scale parameters by dataset. These are copied to the "
+            "corresponding dataset model during resolution."
+        ),
+    )
 
     @field_serializer("datasets")
     def serialize_datasets(
@@ -94,6 +101,16 @@ class ExperimentModel(BaseModel):
             label: resolve_parameter(parameter, parameters, initial)
             for label, parameter in self.scale.items()
         }
+        result.scale_list = {
+            label: [resolve_parameter(value, parameters, initial) for value in values]
+            for label, values in self.scale_list.items()
+        }
+        for label, values in result.scale_list.items():
+            if label in result.datasets:
+                # The dataset-local field is the canonical runtime location. Keeping the
+                # experiment-level mapping makes the YAML contract convenient for callers that
+                # already specify scalar dataset scales at this level.
+                result.datasets[label].scale_list = values
         return result
 
     def get_issues(self, parameters: Parameters) -> list[ItemIssue]:
