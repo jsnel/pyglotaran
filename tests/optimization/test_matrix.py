@@ -9,6 +9,7 @@ import xarray as xr
 
 from glotaran.model.clp_constraint import ZeroConstraint
 from glotaran.model.clp_relation import ClpRelation
+from glotaran.model.errors import GlotaranModelError
 from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.matrix import OptimizationMatrix
@@ -86,6 +87,77 @@ def test_from_global_data(weight: bool):
     assert global_matrix.array.shape == (data.global_axis.size, 1)
     assert full_matrix.array.shape == (data.global_axis.size * data.model_axis.size, 1)
     assert full_matrix.clp_axis == ["c4@c4"]
+
+
+def test_scale_list_promotes_matrix_to_global_slices():
+    data_model = deepcopy(TestDataModelConstantIndexIndependent)
+    data_model.scale_list = [2, 3, 4]
+    data = OptimizationData(data_model)
+
+    matrix = OptimizationMatrix.from_data(data)
+
+    assert matrix.is_index_dependent
+    np.testing.assert_allclose(matrix.array[:, 0, 0], [10, 15, 20])
+
+
+def test_scale_list_combines_with_single_dataset_scalar():
+    data_model = deepcopy(TestDataModelConstantIndexIndependent)
+    data_model.scale_list = [2, 3, 4]
+    data = OptimizationData(data_model, scale=10)
+
+    matrix = OptimizationMatrix.from_data(data)
+
+    np.testing.assert_allclose(matrix.array[:, 0, 0], [100, 150, 200])
+
+
+def test_scale_list_requires_one_value_per_global_coordinate():
+    data_model = deepcopy(TestDataModelConstantIndexIndependent)
+    data_model.scale_list = [2]
+
+    with pytest.raises(ValueError, match="scale_list length"):
+        OptimizationData(data_model)
+
+
+def test_paired_full_matrix_uses_matching_columns_only():
+    data_model = deepcopy(TestDataModelGlobal)
+    data_model.elements[0].compartments = ["m1", "m2"]
+    data_model.global_elements[0].compartments = ["g1", "g2"]
+    data_model.global_composition = "paired"
+    data = OptimizationData(data_model)
+
+    _, _, full_matrix = OptimizationMatrix.from_global_data(data)
+
+    assert full_matrix.array.shape == (data.model_axis.size * data.global_axis.size, 2)
+    assert full_matrix.clp_axis == ["g1@m1", "g2@m2"]
+
+
+def test_full_matrix_combines_single_dataset_scalar_and_scale_list():
+    data_model = deepcopy(TestDataModelGlobal)
+    data_model.scale_list = [2, 2, 2, 2]
+    data = OptimizationData(data_model, scale=3)
+
+    _, _, full_matrix = OptimizationMatrix.from_global_data(data)
+
+    np.testing.assert_allclose(full_matrix.array, 120)
+
+
+def test_paired_full_matrix_requires_equal_component_counts():
+    data_model = deepcopy(TestDataModelGlobal)
+    data_model.global_composition = "paired"
+    data_model.global_elements[0].compartments = ["g1", "g2"]
+    data = OptimizationData(data_model)
+
+    with pytest.raises(GlotaranModelError, match="same number of components"):
+        OptimizationMatrix.from_global_data(data)
+
+
+def test_paired_full_matrix_requires_global_elements():
+    data_model = deepcopy(TestDataModelConstantIndexIndependent)
+    data_model.global_composition = "paired"
+    data = OptimizationData(data_model)
+
+    with pytest.raises(GlotaranModelError, match="requires global elements"):
+        OptimizationMatrix.from_global_data(data)
 
 
 def test_constraints():

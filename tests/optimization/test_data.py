@@ -6,11 +6,14 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from glotaran.model.data_model import resolve_data_model
 from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import OptimizationData
+from glotaran.parameter import Parameters
 from tests.optimization.data import TestDataModelConstantIndexDependent
 from tests.optimization.data import TestDataModelConstantIndexIndependent
 from tests.optimization.data import TestDataModelGlobal
+from tests.optimization.library import test_library
 
 
 def test_data_model_has_original_dataset_attributes():
@@ -38,6 +41,24 @@ def test_optimization_data(weight: bool):
         assert np.array_equal(dataset.weight, data.weight)
     else:
         assert np.array_equal(dataset.data, data.data)
+
+
+def test_scale_list_resolves_parameter_values_at_access_time():
+    data_model = deepcopy(TestDataModelConstantIndexIndependent)
+    data_model.scale_list = ["scale.1", "scale.2", "scale.3"]
+    parameters = Parameters.from_list(
+        [["scale.1", 1.0], ["scale.2", 2.0], ["scale.3", 3.0], ["dataset_scale", 4.0]]
+    )
+
+    resolved = resolve_data_model(data_model, test_library, parameters)
+    data = OptimizationData(resolved, scale=parameters.get("dataset_scale"))
+
+    np.testing.assert_allclose(data.scale_list, [1.0, 2.0, 3.0])
+    assert data.dataset_scale == 4.0
+    parameters.get("scale.2").value = 7.0
+    parameters.get("dataset_scale").value = 8.0
+    np.testing.assert_allclose(data.scale_list, [1.0, 7.0, 3.0])
+    assert data.dataset_scale == 8.0
 
 
 @pytest.mark.parametrize("weight", [True, False])

@@ -188,6 +188,27 @@ class DataModel(Item):
         validator=validate_elements,
     )
     element_scale: dict[str, ParameterType] | None = None
+    scale_list: list[ParameterType] | None = Attribute(
+        default=None,
+        description=(
+            "Per-global-index dataset scale parameters. The entries follow the dataset's "
+            "global coordinate order."
+        ),
+    )
+    single_amplitude_model: bool = Attribute(
+        default=False,
+        description=(
+            "Pair model and global matrix columns when constructing a full model, yielding "
+            "one fitted amplitude per matching pair."
+        ),
+    )
+    global_composition: Literal["cartesian", "paired"] = Attribute(
+        default="cartesian",
+        description=(
+            "Composition rule for full models. 'cartesian' fits every model/global pair; "
+            "'paired' fits matching columns only."
+        ),
+    )
     global_elements: list[Element | str] | None = Attribute(
         default=None,
         description="The global elements contributing to this dataset.",
@@ -254,6 +275,15 @@ def is_data_model_global(data_model: DataModel) -> bool:
     bool
     """
     return data_model.global_elements is not None and len(data_model.global_elements) != 0
+
+
+def is_data_model_single_amplitude(data_model: DataModel) -> bool:
+    """Whether a full data model uses paired model/global components.
+
+    ``single_amplitude_model`` is retained as a source-branch compatibility key;
+    ``global_composition='paired'`` is the preferred staging spelling.
+    """
+    return data_model.single_amplitude_model or data_model.global_composition == "paired"
 
 
 def get_data_model_dimension(data_model: DataModel) -> str:

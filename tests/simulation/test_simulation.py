@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from glotaran.model.errors import GlotaranUserError
 from glotaran.simulation import simulate
 from tests.optimization.data import TestDataModelConstantIndexDependent
 from tests.optimization.data import TestDataModelConstantIndexIndependent
@@ -77,6 +78,63 @@ def test_simulate_from_global_model():
     assert np.array_equal(data["global_dim"], global_axis)
     assert np.array_equal(data["model_dim"], model_axis)
     assert data.data.shape == (3, 4)
+
+
+def test_simulate_applies_scale_list_per_global_coordinate():
+    model = deepcopy(TestDataModelConstantIndexIndependent)
+    model.scale_list = [2, 3, 4, 5]
+    global_axis = np.asarray([1, 2, 3, 4])
+    model_axis = np.asarray([1, 2, 3])
+    clp = xr.DataArray(
+        np.ones((global_axis.size, 1)),
+        coords=(("global_dim", global_axis), ("clp_label", ["c1"])),
+    )
+
+    data = simulate(
+        model,
+        {},
+        None,
+        {"global_dim": global_axis, "model_dim": model_axis},
+        clp=clp,
+    )
+
+    np.testing.assert_allclose(data.data.to_numpy()[0], [10, 15, 20, 25])
+
+
+def test_simulate_paired_full_model_uses_one_amplitude_per_pair():
+    model = deepcopy(TestDataModelGlobal)
+    model.elements[0].compartments = ["m1", "m2"]
+    model.global_elements[0].compartments = ["g1", "g2"]
+    model.global_composition = "paired"
+    global_axis = np.asarray([1, 2, 3, 4])
+    model_axis = np.asarray([1, 2, 3])
+
+    data = simulate(
+        model,
+        {},
+        None,
+        {"global_dim": global_axis, "model_dim": model_axis},
+    )
+
+    assert data.data.shape == (3, 4)
+    np.testing.assert_allclose(data.data.to_numpy(), 40)
+
+
+def test_simulate_paired_model_requires_global_elements():
+    model = deepcopy(TestDataModelConstantIndexIndependent)
+    model.global_composition = "paired"
+
+    with pytest.raises(GlotaranUserError, match="requires global elements"):
+        simulate(
+            model,
+            {},
+            None,
+            {"global_dim": np.asarray([1, 2]), "model_dim": np.asarray([1, 2, 3])},
+            clp=xr.DataArray(
+                np.ones((2, 1)),
+                coords=(("global_dim", [1, 2]), ("clp_label", ["c1"])),
+            ),
+        )
 
 
 def test_seeded_noise_is_independent_of_full_model_dimension_order():

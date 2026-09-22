@@ -309,7 +309,47 @@ def iterate_parameter_fields(
     tuple[str, FieldInfo]
         The parameter fields.
     """
-    yield from iterate_fields_of_type(item, Parameter)
+    # ``ParameterType`` is also used inside nested containers (for example
+    # ``list[list[ParameterType]]`` for grouped IRFs).  The old one-level
+    # structure inspection classified those fields as ``list[list[...]]`` and
+    # consequently skipped them during resolution and issue collection.
+    item_class = item if isinstance(item, type) else item.__class__
+    for name, info in item_class.model_fields.items():
+        if _definition_contains_type(info.annotation, Parameter):
+            yield name, info
+
+
+def _definition_contains_type(definition: Any, wanted: type) -> bool:  # noqa: ANN401
+    """Return whether a type annotation contains ``wanted`` at any depth."""
+    if definition is wanted:
+        return True
+    return any(_definition_contains_type(argument, wanted) for argument in get_args(definition))
+
+
+def _resolve_parameter_value(
+    value: Any,  # noqa: ANN401
+    parameters: Parameters,
+    initial: Parameters,
+) -> Any:  # noqa: ANN401
+    """Resolve parameter references recursively through list and dict containers."""
+    if isinstance(value, (Parameter, float, int, str)):
+        return resolve_parameter(value, parameters, initial)
+    if isinstance(value, list):
+        return [_resolve_parameter_value(v, parameters, initial) for v in value]
+    if isinstance(value, dict):
+        return {key: _resolve_parameter_value(v, parameters, initial) for key, v in value.items()}
+    return value
+
+
+def _parameter_issues(value: Any, parameters: Parameters) -> list[ItemIssue]:  # noqa: ANN401
+    """Collect unresolved parameter references recursively through containers."""
+    if isinstance(value, str) and not parameters.has(value):
+        return [ParameterIssue(value)]
+    if isinstance(value, list):
+        return [issue for v in value for issue in _parameter_issues(v, parameters)]
+    if isinstance(value, dict):
+        return [issue for v in value.values() for issue in _parameter_issues(v, parameters)]
+    return []
 
 
 def add_to_initial(label: str, parameters: Parameters, initial: Parameters) -> Parameter:
@@ -328,25 +368,17 @@ def resolve_parameter(
     return parameter
 
 
-def resolve_item_parameters(  # noqa: C901
+def resolve_item_parameters(
     item: ItemT, parameters: Parameters, initial: Parameters | None = None
 ) -> ItemT:
     resolved: dict[str, Any] = {}
     initial = initial or parameters
 
-    for name, info in iterate_parameter_fields(item):
+    for name, _info in iterate_parameter_fields(item):
         value = getattr(item, name)
         if value is None:
             continue
-        structure, _ = get_structure_and_type_from_field(info)
-        if structure is None:
-            resolved[name] = resolve_parameter(value, parameters, initial)
-        elif structure is list:
-            resolved[name] = [resolve_parameter(v, parameters, initial) for v in value]
-        elif structure is dict:
-            resolved[name] = {
-                k: resolve_parameter(v, parameters, initial) for k, v in value.items()
-            }
+        resolved[name] = _resolve_parameter_value(value, parameters, initial)
 
     for name, info in iterate_item_fields(item):
         value = getattr(item, name)
@@ -382,18 +414,10 @@ def get_item_issues(item: Item, parameters: Parameters) -> list[ItemIssue]:
             for v in values:
                 issues += get_item_issues(v, parameters)
 
-    for name, info in iterate_parameter_fields(item):
+    for name, _info in iterate_parameter_fields(item):
         value = getattr(item, name)
         if value is None:
             continue
-        structure, _ = get_structure_and_type_from_field(info)
-        if structure is None:
-            if isinstance(value, str) and not parameters.has(value):
-                issues += [ParameterIssue(value)]
-        else:
-            values = value.values() if structure is dict else value
-            issues += [
-                ParameterIssue(v) for v in values if isinstance(v, str) and not parameters.has(v)
-            ]
+        issues += _parameter_issues(value, parameters)
 
     return issues

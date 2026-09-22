@@ -30,6 +30,13 @@ class MockItem(Item):
     pdict_option: dict[str, ParameterType] | None = None
 
 
+class NestedParameterItem(Item):
+    """Parameter fields nested more than one container level."""
+
+    grouped: list[list[ParameterType]]
+    grouped_by_name: dict[str, list[ParameterType]]
+
+
 class MockTypedItem(TypedItem):
     """This is just a mock item for testing."""
 
@@ -96,6 +103,29 @@ def test_get_issues():
 
     issues = get_item_issues(item, Parameters({}))
     assert len(issues) == 5
+
+
+def test_nested_parameter_issues_and_resolution():
+    item = NestedParameterItem(
+        grouped=[["missing", 1.0], ["also_missing"]],
+        grouped_by_name={"first": ["missing", "present"]},
+    )
+    parameters = Parameters.from_list([["present", 2.0]])
+
+    issues = get_item_issues(item, parameters)
+    assert [issue.to_string() for issue in issues] == [
+        "Missing parameter with label 'missing'.",
+        "Missing parameter with label 'also_missing'.",
+        "Missing parameter with label 'missing'.",
+    ]
+
+    initial = Parameters.from_list([["missing", 3.0], ["also_missing", 4.0], ["present", 2.0]])
+    resolved = resolve_item_parameters(item, Parameters({}), initial)
+    assert [[float(value) for value in group] for group in resolved.grouped] == [
+        [3.0, 1.0],
+        [4.0],
+    ]
+    assert [float(value) for value in resolved.grouped_by_name["first"]] == [3.0, 2.0]
 
 
 def test_resolve_item_parameters():

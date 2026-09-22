@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 
 from glotaran.model.data_model import get_data_model_dimension
+from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import resolve_data_model
 from glotaran.model.errors import GlotaranUserError
 from glotaran.optimization.matrix import OptimizationMatrix
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from glotaran.typing.types import ArrayLike
 
 
-def simulate(
+def simulate(  # noqa: C901, PLR0912, PLR0915
     model: DataModel,
     library: ModelLibrary,
     parameters: Parameters,
@@ -64,6 +65,9 @@ def simulate(
         Raised if dataset model has no global megacomplex and no clp are provided.
     """
     model = resolve_data_model(model, library, parameters)
+    if is_data_model_single_amplitude(model) and not model.global_elements:
+        msg = "A single-amplitude simulation requires global elements to be configured."
+        raise GlotaranUserError(msg)
     model_dimension = get_data_model_dimension(model)
     model_axis = coordinates[model_dimension]
     global_dimension = next(dim for dim in coordinates if dim != model_dimension)
@@ -76,10 +80,19 @@ def simulate(
         global_matrix = OptimizationMatrix.from_data_model(
             model, global_axis, model_axis, None, global_matrix=True
         )
-        clp = xr.DataArray(
-            global_matrix.array,
-            coords=((global_dimension, global_axis), ("clp_label", global_matrix.clp_axis)),
-        )
+        if is_data_model_single_amplitude(model):
+            if global_matrix.is_index_dependent:
+                msg = (
+                    "Single-amplitude simulation does not support an index-dependent "
+                    "global matrix."
+                )
+                raise GlotaranUserError(msg)
+            clp = None
+        else:
+            clp = xr.DataArray(
+                global_matrix.array,
+                coords=((global_dimension, global_axis), ("clp_label", global_matrix.clp_axis)),
+            )
 
     matrix = OptimizationMatrix.from_data_model(model, global_axis, model_axis, None)
     result = xr.DataArray(
@@ -89,11 +102,56 @@ def simulate(
             (global_dimension, global_axis),
         ],
     )
-    for i in range(global_axis.size):
-        result[:, i] = np.dot(
-            matrix.at_index(i).array,
-            clp.isel({global_dimension: i}).sel({"clp_label": matrix.clp_axis}).to_numpy(),
+    global_matrix = (
+        OptimizationMatrix.from_data_model(
+            model, global_axis, model_axis, None, global_matrix=True
         )
+        if model.global_elements
+        else None
+    )
+    if model.scale_list is not None:
+        if len(model.scale_list) != global_axis.size:
+            msg = (
+                f"Dataset scale_list length ({len(model.scale_list)}) does not match the "
+                f"number of global axis points ({global_axis.size})."
+            )
+            raise ValueError(msg)
+        scales = np.asarray(
+            [float(getattr(value, "value", value)) for value in model.scale_list],
+            dtype=float,
+        )
+    else:
+        scales = np.ones(global_axis.size)
+    for i in range(global_axis.size):
+        if is_data_model_single_amplitude(model):
+            assert global_matrix is not None
+            if len(global_matrix.clp_axis) != len(matrix.clp_axis):
+                msg = (
+                    "A single-amplitude simulation requires the model and global matrices "
+                    "to have the same number of components."
+                )
+                raise GlotaranUserError(msg)
+            model_matrix = matrix.at_index(i).array
+            if global_matrix.is_index_dependent:
+                msg = (
+                    "Single-amplitude simulation does not support an index-dependent "
+                    "global matrix."
+                )
+                raise GlotaranUserError(msg)
+            pair_matrix = model_matrix * global_matrix.array[i, :][np.newaxis, :]
+            amplitudes = (
+                np.ones(pair_matrix.shape[1])
+                if clp is None
+                else clp.isel({global_dimension: i}).to_numpy()
+            )
+            result[:, i] = pair_matrix @ amplitudes
+        else:
+            assert clp is not None
+            result[:, i] = np.dot(
+                matrix.at_index(i).array,
+                clp.isel({global_dimension: i}).sel({"clp_label": matrix.clp_axis}).to_numpy(),
+            )
+        result[:, i] *= scales[i]
 
     if noise and noise_seed is not None:
         rng = np.random.default_rng(noise_seed)

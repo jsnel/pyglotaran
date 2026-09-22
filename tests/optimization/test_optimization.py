@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import numpy as np
 import xarray as xr
 
@@ -8,6 +10,7 @@ from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
+from tests.optimization.data import TestDataModelConstantIndexIndependent
 from tests.optimization.library import test_library
 
 
@@ -129,6 +132,43 @@ def test_multiple_experiments():
     assert result.success
     assert initial_parameters != optimized_parameters
     assert optimized_parameters.close_or_equal(parameters)
+
+
+def test_linked_fit_recovers_free_scale_list_against_fixed_reference():
+    reference = deepcopy(TestDataModelConstantIndexIndependent)
+    scaled = deepcopy(TestDataModelConstantIndexIndependent)
+    reference.scale_list = [1.0, 1.0, 1.0]
+    scaled.scale_list = ["scale.1", "scale.2", "scale.3"]
+
+    wanted_scales = np.asarray([2.0, 3.0, 4.0])
+    scaled_data = scaled.data["data"].copy()
+    scaled_data.data *= wanted_scales[np.newaxis, :]
+    scaled.data["data"] = scaled_data
+
+    experiment = ExperimentModel(
+        datasets={"reference": reference, "scaled": scaled},
+        clp_link_tolerance=0,
+    )
+    initial_parameters = Parameters.from_list(
+        [["scale.1", 1.2], ["scale.2", 1.2], ["scale.3", 1.2]]
+    )
+
+    optimized_parameters, _, info = Optimization(
+        models=[experiment],
+        parameters=initial_parameters,
+        library=test_library,
+        verbose=False,
+        raise_exception=True,
+        maximum_number_function_evaluations=40,
+    ).run()
+
+    assert info.success
+    np.testing.assert_allclose(
+        [optimized_parameters.get(f"scale.{i}").value for i in range(1, 4)],
+        wanted_scales,
+        rtol=1e-6,
+        atol=1e-8,
+    )
 
 
 def test_global_data():
