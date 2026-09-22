@@ -398,6 +398,22 @@ def test_global_data(weight: bool):
     assert optimization_result.residuals.shape == data_model.data.data.shape
 
 
+def test_paired_full_model_result_has_diagonal_amplitudes_and_matching_clp_count():
+    data_model = deepcopy(TestDataModelGlobal)
+    data_model.elements[0].compartments = ["m1", "m2"]
+    data_model.global_elements[0].compartments = ["g1", "g2"]
+    data_model.global_composition = "paired"
+    objective = OptimizationObjective(ExperimentModel(datasets={"paired": data_model}))
+
+    result = objective.get_result()
+    optimization_result = result.optimization_results["paired"]
+    amplitudes = optimization_result.elements["paired"]["amplitudes"]
+
+    assert result.clp_size == 2
+    assert amplitudes.shape == (2, 2)
+    assert np.count_nonzero(amplitudes.to_numpy() - np.diag(np.diag(amplitudes))) == 0
+
+
 def test_multiple_data():
     data_model_one = deepcopy(TestDataModelConstantIndexIndependent)
     data_model_two = deepcopy(TestDataModelConstantIndexDependent)

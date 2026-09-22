@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from textwrap import indent
-from warnings import warn
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import ClassVar
+from warnings import warn
 
 import asteval
 import numpy as np
@@ -35,11 +36,17 @@ class ParameterNotFoundError(Exception):
 class Parameters:
     """A container for :class:`Parameter`."""
 
-    DATAFRAME_COLUMNS = {
-        "label", "value", "standard_error", "expression", "maximum", "minimum",
-        "non_negative", "vary",
+    DATAFRAME_COLUMNS: ClassVar[set[str]] = {
+        "label",
+        "value",
+        "standard_error",
+        "expression",
+        "maximum",
+        "minimum",
+        "non_negative",
+        "vary",
     }
-    DERIVED_PARAMETER_COLUMNS = {"t-value", "T-value"}
+    DERIVED_PARAMETER_COLUMNS: ClassVar[set[str]] = {"t-value", "T-value"}
 
     loader = load_parameters
 
@@ -181,7 +188,8 @@ class Parameters:
         labels = df["label"].astype(str).str.strip()
         duplicates = labels[labels.duplicated(keep=False)].unique()
         if len(duplicates):
-            raise ValueError(f"Duplicate parameter label(s) in '{source}': {list(duplicates)}.")
+            msg_0 = f"Duplicate parameter label(s) in '{source}': {list(duplicates)}."
+            raise ValueError(msg_0)
         df["label"] = labels
         unknown = set(df.columns) - cls.DATAFRAME_COLUMNS - cls.DERIVED_PARAMETER_COLUMNS
         if unknown:

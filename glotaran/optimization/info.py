@@ -15,6 +15,7 @@ from pydantic import field_serializer
 from pydantic import field_validator
 from pydantic import model_validator
 
+from glotaran.model.clp_penalties import EqualAreaPenaltyDiagnostic  # noqa: TC001
 from glotaran.optimization.optimization_history import OptimizationHistory  # noqa: TC001
 from glotaran.parameter import ParameterHistory  # noqa: TC001
 from glotaran.utils.pydantic_serde import deserialize_from_csv
@@ -95,6 +96,9 @@ class OptimizationInfo(BaseModel):
     """
     additional_penalty: float | None = None
     additional_parameter_penalty: list[float] | None = None
+    additional_penalty_areas: list[EqualAreaPenaltyDiagnostic] | None = None
+    clp_standard_error_method: str | None = None
+    clp_standard_error_finite_difference_relative_step: float | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

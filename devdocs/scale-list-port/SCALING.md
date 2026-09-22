@@ -36,8 +36,8 @@ reported CLP size counts only the paired amplitudes.
 
 Index-dependent global matrices remain unsupported for paired composition,
 because the paired contract is defined for one global component matrix shared
-over the global coordinate. Cartesian composition and all existing scalar
-scale behavior remain unchanged when the new fields are omitted.
+over the global coordinate. Cartesian composition remains the default. The previously ignored scalar scale
+on single-dataset/full objectives now applies, matching the linked objective.
 
 ## Evidence
 
@@ -50,7 +50,7 @@ The focused regression coverage is in:
 - `tests/simulation/test_simulation.py` for per-coordinate scaling and paired
   simulation.
 
-The focused suite currently passes with 46 tests. Per-coordinate scales can be
+The focused owned suite passes 47 tests; a broader integration selection passes 74. Per-coordinate scales can be
 non-identifiable when the corresponding amplitudes are also unconstrained; the
 staging port preserves the requested parameterization and leaves that gauge
 choice to the model author.

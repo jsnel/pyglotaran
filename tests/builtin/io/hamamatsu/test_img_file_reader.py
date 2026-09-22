@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -9,6 +9,10 @@ import xarray as xr
 
 from glotaran.builtin.io.hamamatsu.img_file_reader import HamamatsuImgDataIo
 from glotaran.builtin.io.hamamatsu.img_file_reader import _parse_scaling_reference
+from glotaran.io import load_dataset
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_img(
@@ -106,7 +110,7 @@ def test_reject_non_img_file(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "reference, expected",
+    ("reference", "expected"),
     [
         ("*123", (123, 1024)),
         ("+456", (456, 1280)),
@@ -129,7 +133,7 @@ def test_load_img_preserves_unsigned_16_bit_counts(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "file_type, shape, spectral_reference, time_reference, x_offset, y_offset",
+    ("file_type", "shape", "spectral_reference", "time_reference", "x_offset", "y_offset"),
     [
         pytest.param(2, (1021, 530), None, None, 341, 0, id="16-bit-pixel-axes"),
         pytest.param(2, (1024, 1024), "*", "*", 0, 0, id="16-bit-full-calibration"),
@@ -193,8 +197,7 @@ def test_load_simulated_measurement_variants(
         np.testing.assert_allclose(dataset.time, time[y_offset : y_offset + height])
 
 
-def test_load_img_public_api_prepares_svd(tmp_path):
-    from glotaran.io import load_dataset
+def test_load_img_public_api_prepares_svd(tmp_path: Path):
 
     path = tmp_path / "public.img"
     _write_img(path, np.arange(12).reshape(4, 3))
@@ -204,6 +207,6 @@ def test_load_img_public_api_prepares_svd(tmp_path):
 
 
 @pytest.mark.parametrize("reference", ["", "#oops", "*oops", "invalid"])
-def test_reject_invalid_calibration_reference(reference):
+def test_reject_invalid_calibration_reference(reference: str):
     with pytest.raises(ValueError):
         _parse_scaling_reference(reference)

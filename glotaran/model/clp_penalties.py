@@ -4,12 +4,29 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import BaseModel
+
 from glotaran.model.item import Item
 from glotaran.model.item import ParameterType
 
 
 class ClpPenalty(Item):
     """Baseclass for clp penalties."""
+
+
+class EqualAreaPenaltyDiagnostic(BaseModel):
+    """Persisted area arithmetic evaluated at the final solution."""
+
+    source: str
+    target: str
+    source_intervals: list[tuple[float, float]] | tuple[float, float] | None
+    target_intervals: list[tuple[float, float]] | tuple[float, float] | None
+    source_area: float
+    target_area: float
+    parameter: float
+    relative: bool
+    weight: float
+    penalty: float
 
 
 class EqualAreaPenalty(ClpPenalty):

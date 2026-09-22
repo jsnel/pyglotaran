@@ -203,7 +203,10 @@ def test_result_extract_paths_from_serialization(tmp_path: Path):
     result_file_path = tmp_path / "result.yml"
     result_file_path.touch()
 
-    assert Result.extract_paths_from_serialization(result_file_path, serialized) == [
+    assert [
+        Path(path).resolve().as_posix()
+        for path in Result.extract_paths_from_serialization(result_file_path, serialized)
+    ] == [
         result_file_path.as_posix(),
         (tmp_path / "scheme.yml").as_posix(),
         (tmp_path / "initial_parameters.csv").as_posix(),
@@ -276,7 +279,10 @@ def test_result_extract_paths_from_serialization_minimal_save(tmp_path: Path):
         result_file_path = tmp_path / "result.yml"
         result_file_path.touch()
 
-        assert Result.extract_paths_from_serialization(result_file_path, serialized) == [
+        assert [
+            Path(path).resolve().as_posix()
+            for path in Result.extract_paths_from_serialization(result_file_path, serialized)
+        ] == [
             result_file_path.as_posix(),
             (tmp_path / "scheme.yml").as_posix(),
             (tmp_path / "initial_parameters.csv").as_posix(),
@@ -292,13 +298,16 @@ def test_result_save(tmp_path: Path):
     result_file_paths = RESULT.save(tmp_path)
 
     assert len(result_file_paths) == 13
-    assert result_file_paths[0] == (tmp_path / "result.yml").as_posix()
+    assert Path(result_file_paths[0]).resolve().as_posix() == (tmp_path / "result.yml").as_posix()
     assert (tmp_path / "result.yml").is_file()
     assert all(Path(path).exists() for path in result_file_paths)
 
     result_file_paths = RESULT.save(tmp_path / "minimal", saving_options=SAVING_OPTIONS_MINIMAL)
     assert len(result_file_paths) == 7
-    assert result_file_paths[0] == (tmp_path / "minimal/result.yml").as_posix()
+    assert (
+        Path(result_file_paths[0]).resolve().as_posix()
+        == (tmp_path / "minimal/result.yml").as_posix()
+    )
     assert (tmp_path / "minimal/result.yml").is_file()
     assert all(Path(path).exists() for path in result_file_paths)
 

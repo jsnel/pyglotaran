@@ -6,7 +6,32 @@
 
 ### ✨ Features
 
+- Port `ism200/scale_list` onto native v0.8 APIs: per-global-index dataset scales,
+  paired single-amplitude full models, grouped/convolved Gaussian activations,
+  spline and skewed-Gaussian width dispersion, and coherent-artifact orders 4/5.
+- Add global equal-parameter penalties, relative equal-area penalties with typed
+  final-area diagnostics, persisted optimizer `x_scale`, and opt-in CLP standard
+  errors with nonlinear uncertainty propagation.
+- Load Hamamatsu ITEX IMG streak-camera files (unsigned 8/16/32-bit data,
+  embedded calibration tables, ROI cropping and wavelength reversal).
+- Export optimized parameter tables with derived T-values; reject duplicate
+  parameter labels, warn about unknown table columns, and report initial bounds.
+- See [the migration guide](devdocs/scale-list-port/USAGE.md) and the
+  [revision contract](devdocs/scale-list-port/PLAN.md). New fitting modes are opt-in;
+  positional scale/IRF lists follow global-coordinate order and need a pinned
+  scale or linked reference when their amplitudes are otherwise non-identifiable.
+
 - ✨ Add a native v0.8 PFID element for perturbed free-induction-decay fitting (#1510)
+
+### scale_list correctness improvements
+
+- Restore the optimizer's returned parameter vector before assembling final results.
+- Round-trip YAML lists of mappings with valid sequence indentation.
+- Keep spline knot coordinates numeric, consume per-index IRF normalization in
+  kinetic matrices, and report the normalized concentrations used for fitting.
+- CLP uncertainty restores fitted state on errors and differentiates in optimizer
+  coordinates, including log-transformed non-negative parameters.
+
 
 ### 👌 Minor Improvements:
 

@@ -1,5 +1,9 @@
 """Parameter table contracts introduced by the scale_list branch."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -7,6 +11,9 @@ import pytest
 from glotaran.io import load_parameters
 from glotaran.io import save_parameters
 from glotaran.parameter import Parameters
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_duplicate_labels_after_whitespace_normalization():
@@ -23,7 +30,7 @@ def test_unknown_columns_warn_and_derived_columns_are_ignored():
 
 
 @pytest.mark.parametrize("suffix", ["csv", "tsv", "xlsx", "ods"])
-def test_optimized_table_roundtrip(tmp_path, suffix):
+def test_optimized_table_roundtrip(tmp_path: Path, suffix: str):
     parameters = Parameters.from_list([["free", 4], ["fixed", 3, {"vary": False}]])
     parameters.get("free").standard_error = 2
     parameters.get("fixed").standard_error = 1

@@ -27,12 +27,15 @@ from glotaran.io import save_dataset
 from glotaran.io.interface import SAVING_OPTIONS_DEFAULT
 from glotaran.io.interface import SavingOptions
 from glotaran.model.data_model import DataModel
+from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import iterate_data_model_elements
+from glotaran.model.errors import GlotaranModelError
 from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.matrix import OptimizationMatrix
 from glotaran.optimization.penalty import calculate_clp_penalties
+from glotaran.optimization.penalty import calculate_clp_penalty_diagnostics
 from glotaran.parameter.parameter import Parameter
 from glotaran.plugin_system.base_registry import full_plugin_name
 from glotaran.plugin_system.data_io_registration import get_data_io
@@ -45,6 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Iterator
 
+    from glotaran.model.clp_penalties import EqualAreaPenaltyDiagnostic
     from glotaran.model.element import Element
     from glotaran.model.experiment_model import ExperimentModel
     from glotaran.typing.types import ArrayLike
@@ -88,9 +92,14 @@ class FitDecomposition(BaseModel):
 
     clp: xr.DataArray
     matrix: xr.DataArray
+    clp_standard_error: xr.DataArray | None = None
 
-    @field_serializer("clp", "matrix", when_used="json")
-    def serialize_computation_arrays(self, value: xr.DataArray, info: SerializationInfo) -> str:
+    @field_serializer("clp", "matrix", "clp_standard_error", when_used="json")
+    def serialize_computation_arrays(
+        self, value: xr.DataArray | None, info: SerializationInfo
+    ) -> str | None:
+        if value is None:
+            return None
         if context_is_dict(info) and (save_folder := save_folder_from_info(info)) is not None:
             saving_options: SavingOptions = info.context.get(
                 "saving_options", SAVING_OPTIONS_DEFAULT
@@ -109,7 +118,7 @@ class FitDecomposition(BaseModel):
         msg = f"SerializationInfo context is missing 'save_folder':\n{info}"
         raise ValueError(msg)
 
-    @field_validator("clp", "matrix", mode="before")
+    @field_validator("clp", "matrix", "clp_standard_error", mode="before")
     @classmethod
     def validate_computation_arrays(
         cls,
@@ -142,6 +151,7 @@ class OptimizationResultMetaData(BaseModel):
     root_mean_square_error: float
     weighted_root_mean_square_error: float | None = None
     scale: float = 1
+    scale_list: list[float] | None = None
 
     @model_serializer(mode="wrap")
     def serialize_diagnostics_unconditionally(
@@ -474,6 +484,8 @@ class OptimizationResult(BaseModel):
         if self.fit_decomposition is not None:
             self.fit_decomposition.clp.attrs |= meta_attrs
             self.fit_decomposition.matrix.attrs |= meta_attrs
+            if self.fit_decomposition.clp_standard_error is not None:
+                self.fit_decomposition.clp_standard_error.attrs |= meta_attrs
         for field_name in ["elements", "activations"]:
             field_value = getattr(self, field_name)
             for value in field_value.values():
@@ -507,6 +519,7 @@ class OptimizationResult(BaseModel):
                     yield from (
                         save_folder / field_name / item_path
                         for item_path in serialized[field_name].values()
+                        if item_path is not None
                     )
 
         top_level_paths_iterator = (
@@ -536,9 +549,22 @@ class OptimizationObjective:
         self._data = (
             LinkedOptimizationData.from_experiment_model(model)
             if len(model.datasets) > 1
-            else OptimizationData(next(iter(model.datasets.values())))
+            else OptimizationData(
+                next(iter(model.datasets.values())),
+                scale=model.scale.get(next(iter(model.datasets.keys()))),
+            )
         )
         self._model = model
+
+    @property
+    def data(self) -> OptimizationData | LinkedOptimizationData:
+        """Prepared optimization data used by this objective."""
+        return self._data
+
+    @property
+    def model(self) -> ExperimentModel:
+        """Resolved experiment model used by this objective."""
+        return self._model
 
     def calculate_matrices(self) -> list[OptimizationMatrix]:
         if isinstance(self._data, OptimizationData):
@@ -612,6 +638,22 @@ class OptimizationObjective:
             if label in self._data.group_definitions[group_label]
         ]
 
+    def get_clp_penalty_diagnostics(self) -> list[EqualAreaPenaltyDiagnostic]:
+        """Return the equal-area arithmetic at the current parameter values."""
+        if not self._model.clp_penalties:
+            return []
+        if isinstance(self._data, OptimizationData) and self._data.is_global:
+            # Full-model CLP penalties are not part of the existing objective.
+            return []
+        matrices = self.calculate_matrices()
+        reduced = self.calculate_reduced_matrices(matrices)
+        estimations = self.resolve_estimations(
+            matrices, reduced, self.calculate_estimations(reduced)
+        )
+        return calculate_clp_penalty_diagnostics(
+            matrices, estimations, self._data.global_axis, self._model.clp_penalties
+        )
+
     def create_result_dataset(self, data: OptimizationData) -> xr.Dataset:
         assert isinstance(data.model.data, xr.Dataset)
         dataset = data.model.data.copy()
@@ -645,6 +687,8 @@ class OptimizationObjective:
         if isinstance(self._data, LinkedOptimizationData):
             scale_param = self._data.scales[label]
             scale = scale_param.value if isinstance(scale_param, Parameter) else scale_param
+        else:
+            scale = self._data.dataset_scale
         return OptimizationResultMetaData(
             global_dimension=data.global_dimension,
             model_dimension=data.model_dimension,
@@ -655,6 +699,7 @@ class OptimizationObjective:
                 else result_dataset.residual
             ),
             scale=scale if scale is not None else 1,
+            scale_list=(data.scale_list.tolist() if data.scale_list is not None else None),
         )
 
     def create_global_result(self) -> OptimizationObjectiveResult:
@@ -681,10 +726,20 @@ class OptimizationObjective:
             self._data.flat_data,
             self._data.model.residual_function,
         )
-        clp = xr.DataArray(
-            estimation.clp.reshape(
+        if is_data_model_single_amplitude(self._data.model):
+            if len(global_matrix.amplitude_label) != len(matrix.amplitude_label):
+                msg = (
+                    "A single-amplitude result requires the model and global matrices to "
+                    "have the same number of components."
+                )
+                raise GlotaranModelError(msg)
+            clp_values = np.diag(estimation.clp)
+        else:
+            clp_values = estimation.clp.reshape(
                 (len(global_matrix.amplitude_label), len(matrix.amplitude_label))
-            ),
+            )
+        clp = xr.DataArray(
+            clp_values,
             coords={
                 "global_clp_label": global_matrix.amplitude_label.to_numpy(),
                 "clp_label": matrix.amplitude_label.to_numpy(),
@@ -695,7 +750,11 @@ class OptimizationObjective:
             estimation.residual.reshape(global_axis.size, model_axis.size),
             coords=((global_dim, global_axis.to_numpy()), (model_dim, model_axis.to_numpy())),
         ).T
-        clp_size = len(matrix.amplitude_label) + len(global_matrix.amplitude_label)
+        clp_size = (
+            len(global_matrix.amplitude_label)
+            if is_data_model_single_amplitude(self._data.model)
+            else len(matrix.amplitude_label) + len(global_matrix.amplitude_label)
+        )
         self._data.unweight_result_dataset(result_dataset)
 
         add_svd_to_result_dataset(result_dataset, global_dim, model_dim)
