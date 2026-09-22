@@ -137,6 +137,20 @@ def test_parameter_penalty_and_x_scale_record_export_and_recompute(
     )
 
 
+def test_project_uses_scheme_clp_standard_error_settings(project: Project, data: xr.Dataset):
+    """Recorded fits must honor the same scheme settings as direct Scheme.optimize."""
+    spec = copy.deepcopy(SCHEME_DICT)
+    spec["compute_clp_standard_error"] = True
+    spec["clp_standard_error_finite_difference_relative_step"] = 2e-6
+    result = project.optimize(
+        Scheme.from_dict(spec), PARAMETERS, {LABEL: data},
+        maximum_number_function_evaluations=2, verbose=False, raise_exception=True,
+    )
+    assert result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert result.optimization_info.clp_standard_error_finite_difference_relative_step == 2e-6
+    assert result.optimization_results[LABEL].fit_decomposition.clp_standard_error is not None
+
+
 def test_recompute_by_id_and_path_writes_no_record(
     project: Project, scheme: Scheme, data: xr.Dataset
 ):

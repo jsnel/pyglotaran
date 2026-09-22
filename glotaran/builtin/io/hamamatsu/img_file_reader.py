@@ -51,7 +51,8 @@ def _read_exact(file: BinaryIO, size: int, description: str) -> bytes:
     """
     data = file.read(size)
     if len(data) != size:
-        raise ValueError(f"Truncated Hamamatsu IMG file while reading {description}.")
+        msg = f"Truncated Hamamatsu IMG file while reading {description}."
+        raise ValueError(msg)
     return data
 
 
@@ -105,22 +106,26 @@ def _parse_scaling_reference(reference: str | None) -> tuple[int, int] | None:
         return None
 
     if not reference:
-        raise ValueError("Empty Hamamatsu calibration reference.")
+        msg = "Empty Hamamatsu calibration reference."
+        raise ValueError(msg)
 
     if reference[0] in _FIXED_CALIBRATION_LENGTH:
         try:
             return int(reference[1:]), _FIXED_CALIBRATION_LENGTH[reference[0]]
         except ValueError as error:
-            raise ValueError(f"Invalid Hamamatsu calibration reference: {reference!r}") from error
+            msg = f"Invalid Hamamatsu calibration reference: {reference!r}"
+            raise ValueError(msg) from error
 
     if reference.startswith("#"):
         try:
             position, length = reference[1:].split(",", maxsplit=1)
             return int(position), int(length)
         except ValueError as error:
-            raise ValueError(f"Invalid Hamamatsu calibration reference: {reference!r}") from error
+            msg = f"Invalid Hamamatsu calibration reference: {reference!r}"
+            raise ValueError(msg) from error
 
-    raise ValueError(f"Unsupported Hamamatsu calibration reference: {reference!r}")
+    msg = f"Unsupported Hamamatsu calibration reference: {reference!r}"
+    raise ValueError(msg)
 
 
 def _read_calibration(
@@ -161,7 +166,8 @@ def _read_calibration(
 
     position, calibration_length = parsed_reference
     if position < 0 or calibration_length <= 0:
-        raise ValueError("Invalid Hamamatsu calibration offset or length.")
+        msg = "Invalid Hamamatsu calibration offset or length."
+        raise ValueError(msg)
     file.seek(position)
     calibration_bytes = _read_exact(
         file,
@@ -178,11 +184,12 @@ def _read_calibration(
     if start >= 0 and stop <= calibration_length:
         return calibration[start:stop]
 
-    raise ValueError(
+    msg = (
         "Hamamatsu IMG calibration length does not match the image axis "
         f"({calibration_length} calibration values for {axis_length} pixels, "
         f"offset {image_offset})."
     )
+    raise ValueError(msg)
 
 
 @register_data_io("img")
@@ -232,13 +239,17 @@ class HamamatsuImgDataIo(DataIoInterface):
             ) = struct.unpack_from("<2s6h", header)
 
             if magic != _MAGIC:
-                raise ValueError(f"File {file_name!r} is not a Hamamatsu ITEX IMG file.")
+                msg = f"File {file_name!r} is not a Hamamatsu ITEX IMG file."
+                raise ValueError(msg)
             if comment_length < 0 or width <= 0 or height <= 0:
-                raise ValueError("Invalid Hamamatsu IMG header dimensions or comment length.")
+                msg = "Invalid Hamamatsu IMG header dimensions or comment length."
+                raise ValueError(msg)
             if file_type == 1:
-                raise NotImplementedError("Compressed Hamamatsu IMG files are not supported.")
+                msg = "Compressed Hamamatsu IMG files are not supported."
+                raise NotImplementedError(msg)
             if file_type not in _FILE_TYPE_TO_DTYPE:
-                raise ValueError(f"Unsupported Hamamatsu IMG file type: {file_type}.")
+                msg = f"Unsupported Hamamatsu IMG file type: {file_type}."
+                raise ValueError(msg)
 
             comment = _read_exact(file, comment_length, "comment").decode(
                 "utf-8", errors="replace"

@@ -1,5 +1,7 @@
 """Global soft constraints between nonlinear parameters."""
 
+from __future__ import annotations
+
 from typing import Literal
 
 from glotaran.model.item import Item
