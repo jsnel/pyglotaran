@@ -9,6 +9,7 @@ from glotaran.builtin.items.activation import Activation
 from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.builtin.items.activation import GaussianActivation
 from glotaran.builtin.items.activation import MultiGaussianActivation
+from glotaran.model.errors import GlotaranModelError
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization import Optimization
 from glotaran.parameter import Parameters
@@ -43,6 +44,44 @@ test_clp = xr.DataArray(
         ("spectral", test_global_axis.data),
     ],
 ).T
+
+
+def test_coherent_artifact_supports_fifth_order_derivative():
+    element = CoherentArtifactElement(label="ca", type="coherent-artifact", order=5)
+    model = ActivationDataModel(
+        elements=["ca"],
+        activations={
+            "irf": GaussianActivation(
+                type="gaussian",
+                compartments={"ca": 1},
+                center=0.0,
+                width=2.0,
+            )
+        },
+    )
+    axis = np.array([-1.0, 0.0, 1.0])
+    labels, matrix = element.calculate_matrix(model, np.array([0.0]), axis)
+    gaussian = np.exp(-(axis**2) / (2 * 2.0**2))
+    assert labels == [f"ca_derivative_{i}" for i in range(5)]
+    assert matrix.shape == (axis.size, 5)
+    assert np.allclose(matrix[:, 3], gaussian * (-(axis**3) + 3 * axis * 2.0**2) / 2.0**6)
+    assert np.allclose(
+        matrix[:, 4], gaussian * (axis**4 - 6 * axis**2 * 2.0**2 + 3 * 2.0**4) / 2.0**8
+    )
+
+
+def test_coherent_artifact_rejects_order_above_five():
+    element = CoherentArtifactElement(label="ca", type="coherent-artifact", order=6)
+    model = ActivationDataModel(
+        elements=["ca"],
+        activations={
+            "irf": GaussianActivation(
+                type="gaussian", compartments={"ca": 1}, center=0.0, width=2.0
+            )
+        },
+    )
+    with pytest.raises(GlotaranModelError, match=r"\[1,5\]"):
+        element.calculate_matrix(model, np.array([0.0]), np.array([0.0]))
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,7 @@ from glotaran.io import load_result
 from glotaran.io import load_scheme
 from glotaran.io import save_result
 from glotaran.io import save_scheme
+from glotaran.parameter import Parameters
 from glotaran.testing.simulated_data.sequential_spectral_decay import RESULT
 
 TEST_SCHEME_YML = """
@@ -33,6 +34,34 @@ experiments:
                         type: instant
                         compartments:
                             "s1": 1
+"""
+
+NESTED_IRF_SCHEME_YML = """
+library:
+    kinetic:
+        type: kinetic
+        rates:
+            (s1, s1): rate
+
+experiments:
+    grouped:
+        datasets:
+            kinetic_grouped:
+                elements: [kinetic]
+                activations:
+                    irf:
+                        type: multi-multi-gaussian
+                        center:
+                            - [irf.center0, 0.1]
+                            - [irf.center1]
+                        width:
+                            - [0.2, irf.width1]
+                            - [0.4]
+                        scale:
+                            - [irf.scale0, 0.5]
+                            - [1.0]
+                        compartments:
+                            s1: 1
 """
 
 
@@ -121,6 +150,39 @@ def test_save_scheme_from_file_edited(tmp_path: Path):
 
     assert save_path.read_text() != TEST_SCHEME_YML
     assert load_scheme(save_path).experiments == {}
+
+
+def test_nested_activation_parameter_labels_roundtrip_and_resolution(tmp_path: Path):
+    """Nested grouped IRF labels survive YAML IO and parameter resolution."""
+    scheme = load_scheme(NESTED_IRF_SCHEME_YML, format_name="yml_str")
+    save_path = tmp_path / "grouped_scheme.yml"
+    save_scheme(scheme, save_path)
+    reloaded = load_scheme(save_path)
+    assert reloaded.model_dump(exclude_unset=True) == scheme.model_dump(exclude_unset=True)
+
+    initial = Parameters.from_list(
+        [
+            ["irf.center0", 0.3],
+            ["irf.center1", 1.2],
+            ["irf.width1", 0.25],
+            ["irf.scale0", 2.0],
+            ["rate", 0.1],
+        ]
+    )
+    resolved = scheme.experiments["grouped"].resolve(scheme.library, Parameters({}), initial)
+    activation = resolved.datasets["kinetic_grouped"].activations["irf"]
+    assert [[float(value) for value in group] for group in activation.center] == [
+        [0.3, 0.1],
+        [1.2],
+    ]
+    assert [[float(value) for value in group] for group in activation.width] == [
+        [0.2, 0.25],
+        [0.4],
+    ]
+    assert [[float(value) for value in group] for group in activation.scale] == [
+        [2.0, 0.5],
+        [1.0],
+    ]
 
 
 @pytest.mark.parametrize("result_file_name", ["result.yml", ""])
