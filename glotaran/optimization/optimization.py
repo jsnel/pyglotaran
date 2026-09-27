@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import ChainMap
+from functools import partial
 from typing import TYPE_CHECKING
 from typing import Literal
 from warnings import warn
@@ -283,9 +284,7 @@ class Optimization:
                 covariance_matrix=covariance,
                 settings=self._clp_standard_error_settings,
                 base_results=objective_result.optimization_results,
-                evaluate_at=lambda candidate, current_objective=objective: (
-                    self._evaluate_objective_at(current_objective, candidate)
-                ),
+                evaluate_at=partial(self._evaluate_objective_at, objective),
             )
             for label, error in standard_errors.items():
                 result = objective_result.optimization_results[label]

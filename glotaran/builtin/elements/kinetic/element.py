@@ -148,8 +148,8 @@ class KineticElement(ExtendableElement, Kinetic):
         scales = (
             np.array([[p.scale for p in ps] for ps in parameters])
             if index_dependent
-            else np.array([p.scale for p in parameters])
-        )  # type:ignore[union-attr]
+            else np.array([p.scale for p in parameters])  # type:ignore[attr-defined]
+        )
         if index_dependent:
             calculate_matrix_gaussian_activation(
                 matrix,

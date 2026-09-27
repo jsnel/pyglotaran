@@ -77,11 +77,11 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
         if not model.global_elements:
             msg = "Cannot simulate dataset without global megacomplexes if no clp are provided."
             raise GlotaranUserError(msg)
-        global_matrix = OptimizationMatrix.from_data_model(
+        clp_matrix = OptimizationMatrix.from_data_model(
             model, global_axis, model_axis, None, global_matrix=True
         )
         if is_data_model_single_amplitude(model):
-            if global_matrix.is_index_dependent:
+            if clp_matrix.is_index_dependent:
                 msg = (
                     "Single-amplitude simulation does not support an index-dependent "
                     "global matrix."
@@ -90,8 +90,8 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
             clp = None
         else:
             clp = xr.DataArray(
-                global_matrix.array,
-                coords=((global_dimension, global_axis), ("clp_label", global_matrix.clp_axis)),
+                clp_matrix.array,
+                coords=((global_dimension, global_axis), ("clp_label", clp_matrix.clp_axis)),
             )
 
     matrix = OptimizationMatrix.from_data_model(model, global_axis, model_axis, None)

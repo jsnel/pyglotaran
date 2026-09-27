@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import struct
 from pathlib import Path
+from typing import Any
 from typing import BinaryIO
 
 import numpy as np
@@ -16,7 +17,7 @@ from glotaran.io.prepare_dataset import prepare_time_trace_dataset
 
 _HEADER_SIZE = 64
 _MAGIC = b"IM"
-_FILE_TYPE_TO_DTYPE = {
+_FILE_TYPE_TO_DTYPE: dict[int, np.dtype[Any]] = {
     0: np.dtype("<u1"),
     2: np.dtype("<u2"),
     3: np.dtype("<u4"),
@@ -258,7 +259,7 @@ class HamamatsuImgDataIo(DataIoInterface):
             dtype = _FILE_TYPE_TO_DTYPE[file_type]
             pixel_count = width * height
             pixel_bytes = _read_exact(file, pixel_count * dtype.itemsize, "image data")
-            data = (
+            data: np.ndarray = (
                 np.frombuffer(pixel_bytes, dtype=dtype, count=pixel_count)
                 .reshape(height, width)
                 .copy()
