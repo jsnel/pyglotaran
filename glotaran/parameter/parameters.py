@@ -282,24 +282,40 @@ class Parameters:
         dict | list
             A dict or list of parameter definitions.
         """
-        if all("." not in p.label for p in self.all()):
-            return list(self.all())
-        parameter_dict: dict[str, Any] = {}
-        for parameter in self.all():
-            path = parameter.label.split(".")
-            nodes = path[:-2]
-            node = parameter_dict
-            for n in nodes:
-                if n not in node:
-                    node[n] = {}
-                node = node[n]
-            upper_node = path[-2]
-            if upper_node not in node:
-                node[upper_node] = []
-            node[upper_node].append(
-                parameter.as_list(label_short=True) if serialize_parameters else parameter
-            )
-        return parameter_dict
+        parameters = list(self.all())
+        root: dict[str, Any] = {"parameters": [], "children": {}}
+
+        for parameter in parameters:
+            node = root
+            for group_name in parameter.label.split(".")[:-1]:
+                node = node["children"].setdefault(
+                    group_name,
+                    {"parameters": [], "children": {}},
+                )
+            node["parameters"].append(parameter)
+
+        def flatten(node: dict[str, Any]) -> list[Parameter]:
+            flattened = list(node["parameters"])
+            for child in node["children"].values():
+                flattened.extend(flatten(child))
+            return flattened
+
+        def convert(parameter: Parameter) -> Parameter | list[Any]:
+            if serialize_parameters:
+                return parameter.as_list(label_short=True)
+            return parameter
+
+        def build(node: dict[str, Any]) -> dict[str, Any] | list[Any]:
+            if node["parameters"] and node["children"]:
+                return [convert(parameter) for parameter in flatten(node)]
+            if node["parameters"]:
+                return [convert(parameter) for parameter in node["parameters"]]
+            return {
+                name: build(child)
+                for name, child in node["children"].items()
+            }
+
+        return build(root)
 
     def set_from_history(self, history: ParameterHistory, index: int):
         """Update the :class:`Parameters` with values from a parameter history.
@@ -470,7 +486,15 @@ class Parameters:
         MarkdownStr :
             The markdown representation as string.
         """
-        return param_dict_to_markdown(self.to_parameter_dict_or_list(), float_format=float_format)
+        parameters = self.to_parameter_dict_or_list()
+        full_labels = isinstance(parameters, list) and any(
+            "." in parameter.label for parameter in parameters
+        )
+        return param_dict_to_markdown(
+            parameters,
+            float_format=float_format,
+            full_labels=full_labels,
+        )
 
     def _repr_markdown_(self) -> str:
         """Create a markdown representation.
@@ -553,6 +577,7 @@ def param_dict_to_markdown(
     float_format: str = ".3e",
     depth: int = 0,
     label: str | None = None,
+    full_labels: bool = False,
 ) -> MarkdownStr:
     """Format the :class:`Parameters` as markdown string.
 
@@ -568,6 +593,8 @@ def param_dict_to_markdown(
         The depth of the parameter dict.
     label: str | None
         The label of the parameter dict.
+    full_labels: bool
+        Whether to display complete parameter labels in a flat parameter list.
 
     Returns
     -------
@@ -596,7 +623,7 @@ def param_dict_to_markdown(
                 parameter.standard_error = np.nan
         parameter_rows = [
             [
-                parameter.label_short,
+                parameter.label if full_labels else parameter.label_short,
                 parameter.value,
                 parameter.standard_error,
                 repr(pretty_format_numerical(parameter.value / parameter.standard_error)),
@@ -623,7 +650,11 @@ def param_dict_to_markdown(
         for label, child in sorted(parameters.items()):
             return_string += str(
                 param_dict_to_markdown(
-                    child, float_format=float_format, depth=depth + 1, label=label
+                    child,
+                    float_format=float_format,
+                    depth=depth + 1,
+                    label=label,
+                    full_labels=full_labels,
                 )
             )
     return MarkdownStr(return_string.replace("'", " "))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import xarray as xr
+
 from glotaran.builtin.megacomplexes.decay.test.test_decay_megacomplex import DecayModel
 from glotaran.builtin.megacomplexes.spectral import SpectralMegacomplex
 from glotaran.builtin.megacomplexes.spectral.shape import SpectralShapeSkewedGaussian

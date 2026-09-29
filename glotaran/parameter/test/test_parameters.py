@@ -307,6 +307,22 @@ def test_parameters_from_dataframe_unknown_column_warns_and_is_dropped():
     assert result == Parameters.from_dict({"foo": [1]})
 
 
+def test_parameters_markdown_handles_prefix_labels():
+    parameters = Parameters.from_parameter_dict_list(
+        [
+            {"label": "shapes.s1.location", "value": 1.0},
+            {"label": "shapes.s1.location.sh", "value": 2.0},
+        ]
+    )
+
+    rendered = parameters._repr_markdown_()
+
+    assert "* __shapes__:" in rendered
+    assert "* __s1__:" in rendered
+    assert "| location" in rendered
+    assert "| sh" in rendered
+
+
 @pytest.mark.parametrize(
     "column_name, expected_error_str",
     (
