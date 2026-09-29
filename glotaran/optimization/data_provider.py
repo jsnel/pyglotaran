@@ -652,6 +652,7 @@ class DataProviderLinked(DataProvider):
                 for label, axis in aligned_global_axes.items()
             ],
             dim="model",
+            join="outer",
         )
         aligned_global_axis = aligned_data.coords["global"].data
         return (

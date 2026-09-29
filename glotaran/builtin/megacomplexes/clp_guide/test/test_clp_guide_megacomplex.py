@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import xarray as xr
+
 from glotaran.builtin.megacomplexes.clp_guide import ClpGuideMegacomplex
 from glotaran.builtin.megacomplexes.clp_guide import SpectralModelClpGuideMegacomplex
 from glotaran.builtin.megacomplexes.decay import DecaySequentialMegacomplex
