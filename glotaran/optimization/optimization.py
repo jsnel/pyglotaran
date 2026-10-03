@@ -15,6 +15,7 @@ from glotaran.model.errors import GlotaranUserError
 from glotaran.model.item import resolve_item_parameters
 from glotaran.optimization.clp_standard_error import ClpStandardErrorSettings
 from glotaran.optimization.clp_standard_error import calculate_clp_standard_error
+from glotaran.optimization.data import prepare_generated_datasets
 from glotaran.optimization.info import OptimizationInfo
 from glotaran.optimization.info import OptimizerSettings
 from glotaran.optimization.objective import OptimizationObjective
@@ -98,6 +99,7 @@ class Optimization:
             experiment.resolve(library, self._parameters, initial=parameters)
             for experiment in models
         ]
+        prepare_generated_datasets(models)
         self._parameter_penalties = [
             resolve_item_parameters(p, self._parameters, parameters)
             for p in parameter_penalties or []

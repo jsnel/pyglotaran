@@ -323,6 +323,7 @@ class FitRecord:
                 (label, data_model)
                 for experiment in scheme.experiments.values()
                 for label, data_model in experiment.datasets.items()
+                if data_model.data is not None
             ]
             content = {
                 "schema_version": RECORD_SCHEMA_VERSION,

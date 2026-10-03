@@ -656,6 +656,7 @@ class OptimizationObjective:
         ).residual
 
     def calculate(self) -> ArrayLike:
+        self._data.update_generated_data()
         if isinstance(self._data, OptimizationData) and self._data.is_global:
             return self.calculate_global_penalty()
         matrices = self.calculate_matrices()
@@ -1115,6 +1116,7 @@ class OptimizationObjective:
         return result
 
     def get_result(self) -> OptimizationObjectiveResult:
+        self._data.update_generated_data()
         return (
             self.create_single_dataset_result()
             if isinstance(self._data, OptimizationData)
