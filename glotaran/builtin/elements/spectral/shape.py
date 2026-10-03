@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Literal
 
 import numpy as np
@@ -10,8 +9,30 @@ import numpy as np
 from glotaran.model.item import ParameterType
 from glotaran.model.item import TypedItem
 
-if TYPE_CHECKING:
-    from glotaran.typing.types import ArrayLike
+
+def _calculate_skewed_gaussian_component(
+    axis: np.ndarray,
+    amplitude: ParameterType | None,
+    location: ParameterType,
+    width: ParameterType,
+    skewness: ParameterType,
+) -> np.ndarray:
+    if np.allclose(skewness, 0):
+        component = np.exp(
+            -np.log(2) * np.square(2 * (axis - location) / width)  # type:ignore[operator]
+        )
+    else:
+        log_args = np.asarray(
+            1 + 2 * skewness * (axis - location) / width  # type:ignore[operator]
+        )
+        component = np.zeros(log_args.shape)
+        valid_arg_mask = log_args > 0
+        component[valid_arg_mask] = np.exp(
+            -np.log(2) * np.square(np.log(log_args[valid_arg_mask]) / skewness)
+        )
+    if amplitude is not None:
+        component *= amplitude
+    return component
 
 
 class SpectralShape(TypedItem):
@@ -129,19 +150,60 @@ class SpectralShapeSkewedGaussian(SpectralShapeGaussian):
         np.ndarray
             An array representing a skewed Gaussian shape.
         """
-        if np.allclose(self.skewness, 0):
-            return super().calculate(axis)
-        log_args: ArrayLike = 1 + (  # type:ignore[assignment]
-            2 * self.skewness * (axis - self.location) / self.width  # type:ignore[operator]
+        return _calculate_skewed_gaussian_component(
+            axis, self.amplitude, self.location, self.width, self.skewness
         )
-        shape = np.zeros(log_args.shape)
-        valid_arg_mask = np.where(log_args > 0)
-        shape[valid_arg_mask] = np.exp(
-            -np.log(2) * np.square(np.log(log_args[valid_arg_mask]) / self.skewness)
+
+
+class SpectralShapeSkewedGaussianSum(SpectralShape):
+    """A sum of skewed Gaussian spectral shapes."""
+
+    type: Literal["skewed-gaussian-sum"]  # type:ignore[assignment]
+    amplitude: list[ParameterType] | None = None
+    location: list[ParameterType]
+    width: list[ParameterType]
+    skewness: list[ParameterType]
+
+    def calculate(self, axis: np.ndarray) -> np.ndarray:
+        """Calculate and sum the skewed Gaussian components for ``axis``.
+
+        Each component is calculated as in :meth:`SpectralShapeSkewedGaussian.calculate`.
+
+        Parameters
+        ----------
+        axis : np.ndarray
+            The axis to calculate the shape for.
+
+        Returns
+        -------
+        np.ndarray
+            The sum of all skewed Gaussian components.
+
+        Raises
+        ------
+        ValueError
+            If the parameter lists have different lengths.
+        """
+        component_count = len(self.location)
+        amplitudes: list[ParameterType | None] = (
+            list(self.amplitude) if self.amplitude else [None] * component_count
         )
-        if self.amplitude is not None:
-            shape *= self.amplitude
-        return shape
+        if len({component_count, len(self.width), len(self.skewness), len(amplitudes)}) != 1:
+            msg = (
+                "Skewed Gaussian sum parameters amplitude, location, width, and "
+                "skewness must have the same number of components."
+            )
+            raise ValueError(msg)
+
+        return sum(
+            (
+                _calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
+                for amplitude, location, width, skewness in zip(
+                    amplitudes, self.location, self.width, self.skewness, strict=True
+                )
+            ),
+            start=np.zeros(axis.shape, dtype=float),
+        )
 
 
 class SpectralShapeOne(SpectralShape):
