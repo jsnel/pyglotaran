@@ -128,6 +128,24 @@ def test_generated_data_parameters_are_optimized():
     assert set(result.optimization_results) == {"measured", "guide_data"}
 
 
+def test_generated_data_result_reports_current_values():
+    scheme = make_scheme()
+    parameters = make_parameters(655.0)
+    parameters.get("shape.location").vary = False
+    optimization = make_optimization(scheme, parameters)
+    objective = optimization._objectives[0]
+    optimization._parameters.get("shape.location").value = 640.0
+
+    result = objective.get_result().optimization_results["guide_data"]
+
+    expected = gaussian(SPECTRAL, 2.0, 640.0, 20.0)
+    np.testing.assert_allclose(result.input_data.values[0], expected)
+    assert result.fit_decomposition is not None
+    clp = result.fit_decomposition.clp.sel(amplitude_label="s1").values
+    np.testing.assert_allclose(result.fitted_data.values[0], clp)
+    np.testing.assert_allclose(result.residuals.values[0], expected - clp, atol=1e-12)
+
+
 def test_missing_measured_data_is_still_rejected():
     scheme = make_scheme()
     with pytest.raises(GlotaranUserError, match="'measured'"):

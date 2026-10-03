@@ -660,6 +660,9 @@ class OptimizationObjective:
         dataset = data.model.data.copy()
         if dataset.data.dims != (data.model_dimension, data.global_dimension):
             dataset["data"] = dataset.data.T
+        if data.generated_data is not None:
+            # Report generated data at the current parameters, not at their creation.
+            dataset["data"] = dataset.data.copy(data=data.generated_data)
         dataset["data"].attrs = data.original_dataset_attributes.copy()
         dataset.coords[data.model_dimension] = data.model_axis
         dataset.coords[data.global_dimension] = data.global_axis
