@@ -119,6 +119,7 @@ class DataProvider:
         """
         self._dataset_group = dataset_group
         self._data: dict[str, ArrayLike] = {}
+        self._generated_data: dict[str, ArrayLike] = {}
         self._weight: dict[str, ArrayLike | None] = {}
         self._flattened_data: dict[str, ArrayLike] = {}
         self._flattened_weight: dict[str, ArrayLike | None] = {}
@@ -152,6 +153,7 @@ class DataProvider:
             )
             if generated_data is not None:
                 self._generated_data_labels.add(label)
+                self._generated_data[label] = generated_data.copy()
                 self._data[label] = generated_data
             if self._weight[label] is not None:
                 self._data[label] *= self._weight[label]
@@ -175,6 +177,7 @@ class DataProvider:
             )
             if generated_data is None:
                 continue
+            self._generated_data[label] = generated_data.copy()
             if self._weight[label] is not None:
                 generated_data = generated_data * self._weight[label]
             self._data[label] = generated_data
@@ -324,6 +327,10 @@ class DataProvider:
             The data.
         """
         return self._data[dataset_label]
+
+    def get_generated_data(self, dataset_label: str) -> ArrayLike | None:
+        """Get the latest unweighted model-generated data, if any."""
+        return self._generated_data.get(dataset_label)
 
     def get_weight(self, dataset_label: str) -> ArrayLike | None:
         """Get weight for a dataset.

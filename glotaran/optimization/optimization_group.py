@@ -217,6 +217,30 @@ class OptimizationGroup:
             global_dimension = self._data_provider.get_global_dimension(label)
             result_dataset.attrs["global_dimension"] = global_dimension
 
+            generated_data = self._data_provider.get_generated_data(label)
+            if generated_data is not None:
+                data_dimensions = result_dataset["data"].dims
+                result_dataset["data"] = xr.DataArray(
+                    generated_data,
+                    coords={
+                        model_dimension: result_dataset.coords[model_dimension],
+                        global_dimension: result_dataset.coords[global_dimension],
+                    },
+                    dims=(model_dimension, global_dimension),
+                    attrs=result_dataset["data"].attrs,
+                ).transpose(*data_dimensions)
+                if self._add_svd:
+                    data_svd_variables = [
+                        "data_left_singular_vectors",
+                        "data_singular_values",
+                        "data_right_singular_vectors",
+                    ]
+                    result_dataset = result_dataset.drop_vars(
+                        [name for name in data_svd_variables if name in result_dataset]
+                    )
+                    result_datasets[label] = result_dataset
+                    self.add_svd_data("data", result_dataset, model_dimension, global_dimension)
+
             result_dataset["residual"] = residuals[label]
             self.add_weight_to_result_data(label, result_dataset)
 
