@@ -15,6 +15,9 @@ from glotaran.model.data_model import get_data_model_dimension
 from glotaran.model.data_model import is_data_model_global
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from glotaran.model.element import Element
     from glotaran.model.experiment_model import ExperimentModel
     from glotaran.model.item import ParameterType
     from glotaran.parameter import Parameter
@@ -30,6 +33,112 @@ class AlignDatasetError(ValueError):
             "Cannot link datasets, aligning is ambiguous. \n\n"
             "Try to lower link tolerance or change the alignment method."
         )
+
+
+def get_data_generating_elements(model: DataModel) -> list[Element]:
+    """Get the elements of a resolved data model which generate the dataset values.
+
+    Parameters
+    ----------
+    model : DataModel
+        The resolved data model.
+
+    Returns
+    -------
+    list[Element]
+        The elements implementing ``calculate_data``.
+    """
+    return [element for element in model.elements if hasattr(element, "calculate_data")]  # type:ignore[misc]
+
+
+def calculate_generated_data(
+    model: DataModel, model_axis: ArrayLike, global_axis: ArrayLike
+) -> ArrayLike | None:
+    """Calculate model-generated dataset values from the current parameter values.
+
+    Parameters
+    ----------
+    model : DataModel
+        The resolved data model.
+    model_axis : ArrayLike
+        The model axis of the dataset.
+    global_axis : ArrayLike
+        The global axis of the dataset.
+
+    Returns
+    -------
+    ArrayLike | None
+        The generated data with dimensions (model, global), or ``None`` if no element of the
+        data model generates data.
+
+    Raises
+    ------
+    ValueError
+        If more than one element of the data model generates data.
+    """
+    generators = get_data_generating_elements(model)
+    if not generators:
+        return None
+    if len(generators) > 1:
+        labels = [element.label for element in generators]
+        msg = f"A data model can contain only one data generating element, got {labels}."
+        raise ValueError(msg)
+    return generators[0].calculate_data(model, model_axis, global_axis)  # type:ignore[attr-defined]
+
+
+def prepare_generated_datasets(experiments: Iterable[ExperimentModel]) -> None:
+    """Create the missing datasets of resolved data models whose elements generate data.
+
+    A generated dataset has a single model axis point and uses the union of the spectral
+    axes of the measured datasets in the same experiment, or of all experiments if the
+    experiment has no measured dataset with a spectral axis. Its values are recalculated by
+    :class:`OptimizationData` whenever the parameters change.
+
+    Parameters
+    ----------
+    experiments : Iterable[ExperimentModel]
+        The resolved experiments.
+
+    Raises
+    ------
+    ValueError
+        If no measured dataset provides a spectral axis.
+    """
+    experiments = list(experiments)
+    measured = [
+        [
+            data_model.data
+            for data_model in experiment.datasets.values()
+            if isinstance(data_model.data, xr.Dataset) and "spectral" in data_model.data.coords
+        ]
+        for experiment in experiments
+    ]
+    for experiment, experiment_measured in zip(experiments, measured, strict=True):
+        for label, data_model in experiment.datasets.items():
+            if data_model.data is not None or not get_data_generating_elements(data_model):
+                continue
+            spectral_axes = [dataset.spectral.data for dataset in experiment_measured]
+            if not spectral_axes:
+                spectral_axes = [
+                    dataset.spectral.data for datasets in measured for dataset in datasets
+                ]
+            if not spectral_axes:
+                msg = f"Cannot generate dataset '{label}': no dataset provides a spectral axis."
+                raise ValueError(msg)
+
+            spectral_axis = np.unique(np.concatenate(spectral_axes))
+            model_dimension = get_data_model_dimension(data_model)
+            model_axis = np.array([0.0])
+            data_model.data = xr.Dataset(
+                {
+                    "data": (
+                        (model_dimension, "spectral"),
+                        calculate_generated_data(data_model, model_axis, spectral_axis),
+                    )
+                },
+                coords={model_dimension: model_axis, "spectral": spectral_axis},
+                attrs={"generated_by_model": 1},
+            )
 
 
 class OptimizationDataProvider:
@@ -89,6 +198,32 @@ class OptimizationData(OptimizationDataProvider):
         else:
             self._data_slices = [self._data[:, i] for i in range(self.global_axis.size)]
 
+        self._generates_data = len(get_data_generating_elements(model)) > 0
+        self._generated_data: ArrayLike | None = None
+        self.update_generated_data()
+
+    def update_generated_data(self) -> bool:
+        """Recalculate model-generated data from the current parameter values.
+
+        Returns
+        -------
+        bool
+            Whether the data model generates its data.
+        """
+        if not self._generates_data:
+            return False
+        generated_data = calculate_generated_data(self._model, self._model_axis, self._global_axis)
+        assert generated_data is not None
+        self._generated_data = generated_data
+        self._data = (
+            generated_data * self._weight if self._weight is not None else generated_data.copy()
+        )
+        if self.is_global:
+            self._flat_data = self._data.T.flatten()
+        else:
+            self._data_slices = [self._data[:, i] for i in range(self.global_axis.size)]
+        return True
+
     @property
     def original_dataset_attributes(self) -> dict[Any, Any]:
         return self._original_dataset_attributes
@@ -100,6 +235,11 @@ class OptimizationData(OptimizationDataProvider):
     @property
     def flat_data(self) -> ArrayLike | None:
         return self._flat_data
+
+    @property
+    def generated_data(self) -> ArrayLike | None:
+        """The latest unweighted model-generated data, if the data model generates data."""
+        return self._generated_data
 
     @property
     def data_slices(self) -> list[ArrayLike]:
@@ -297,6 +437,35 @@ class LinkedOptimizationData(OptimizationDataProvider):
         self._group_labels, self._group_definitions, self._group_sizes = self.align_groups(
             aligned_global_axes, datasets
         )
+
+    def update_generated_data(self) -> bool:
+        """Recalculate model-generated data and rebuild the aligned data slices.
+
+        The slices are rebuilt in the dataset and index order which
+        :meth:`OptimizationMatrix.from_linked_data` uses for the matrices.
+
+        Returns
+        -------
+        bool
+            Whether any linked dataset generates its data.
+        """
+        updated = [data.update_generated_data() for data in self._datasets.values()]
+        if not any(updated):
+            return False
+        self._data = [
+            np.concatenate(
+                [
+                    self._datasets[label].data[:, index]
+                    for label, index in zip(
+                        self._group_definitions[self._group_labels[global_index]],
+                        self._data_indices[global_index],
+                        strict=True,
+                    )
+                ]
+            )
+            for global_index in range(self._global_axis.size)
+        ]
+        return True
 
     @classmethod
     def from_experiment_model(cls, model: ExperimentModel) -> LinkedOptimizationData:

@@ -82,13 +82,22 @@ class Scheme(BaseModel):
         )
 
     def _load_data(self, datasets: DatasetMapping) -> None:
-        try:
-            for experiment in self.experiments.values():
-                for label, data_model in experiment.datasets.items():
+        for experiment in self.experiments.values():
+            for label, data_model in experiment.datasets.items():
+                if label in datasets:
                     data_model.data = datasets[label]
-        except KeyError as e:
-            msg = f"Not data for data model '{label}' provided."
-            raise GlotaranUserError(msg) from e
+                elif any(
+                    hasattr(
+                        self.library[element] if isinstance(element, str) else element,
+                        "calculate_data",
+                    )
+                    for element in data_model.elements
+                ):
+                    # Generated from the parameters during optimization.
+                    data_model.data = None
+                else:
+                    msg = f"Not data for data model '{label}' provided."
+                    raise GlotaranUserError(msg)
 
     @property
     def dataset_paths(self) -> dict[str, str]:
