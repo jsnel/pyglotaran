@@ -9,6 +9,7 @@ from glotaran.builtin.megacomplexes.decay.test.test_decay_megacomplex import cre
 from glotaran.model import Model
 from glotaran.optimization.data_provider import DataProvider
 from glotaran.optimization.data_provider import prepare_generated_datasets
+from glotaran.optimization.optimization_group import OptimizationGroup
 from glotaran.optimization.optimize import optimize
 from glotaran.parameter import Parameters
 from glotaran.project import Scheme
@@ -114,6 +115,26 @@ def test_spectral_model_clp_guide_generates_and_refreshes_missing_dataset():
     np.testing.assert_allclose(real_data.data.values, 0.0)
 
     optimization_scheme = Scheme(model=model, parameters=parameters, data={"real_data": real_data})
+    prepare_generated_datasets(optimization_scheme)
+    guide_data = optimization_scheme.data["guide_data"]
+    guide_data["weight"] = xr.full_like(guide_data.data, 1000.0)
+    optimization_group = OptimizationGroup(
+        optimization_scheme,
+        model.get_dataset_groups()["default"],
+    )
+    parameters.get("shape.amplitude").value = 4.0
+    optimization_group.calculate(parameters)
+    guide_result = optimization_group.create_result_data()["guide_data"]
+    np.testing.assert_allclose(guide_result.data.values, [[2.0, 4.0, 2.0]])
+    np.testing.assert_allclose(
+        guide_result.fitted_data.values,
+        guide_result.matrix.values @ guide_result.clp.values.T,
+    )
+    np.testing.assert_allclose(
+        guide_result.data_singular_values.values,
+        np.linalg.svd(guide_result.data.values, compute_uv=False),
+    )
+
     result = optimize(optimization_scheme, verbose=False, raise_exception=True)
     assert "guide_data" in result.data
 
