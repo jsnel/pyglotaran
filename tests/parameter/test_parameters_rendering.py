@@ -137,3 +137,32 @@ def test_parameters_markdown_treats_near_zero_standard_error_as_missing():
 
     assert " nan " in rendered
     assert parameters.get("rate.fixed").standard_error == 0
+
+
+def test_parameters_markdown_handles_prefix_labels():
+    """A label which is also the prefix of another label is rendered without error."""
+    parameters = Parameters.from_parameter_dict_list(
+        [
+            {"label": "shapes.s1.location", "value": 1.0},
+            {"label": "shapes.s1.location.sh", "value": 2.0},
+        ]
+    )
+
+    rendered = parameters._repr_markdown_()
+
+    assert "* __shapes__:" in rendered
+    assert "* __s1__:" in rendered
+    assert "| location" in rendered
+    assert "| sh" in rendered
+
+
+def test_parameters_markdown_uses_full_labels_for_flat_mixed_root():
+    """A flat list mixing root and grouped labels keeps the complete labels."""
+    parameters = Parameters.from_parameter_dict_list(
+        [{"label": "scale", "value": 1.0}, {"label": "rates.k1", "value": 2.0}]
+    )
+
+    rendered = str(parameters.markdown())
+
+    assert "| scale" in rendered
+    assert "| rates.k1" in rendered
