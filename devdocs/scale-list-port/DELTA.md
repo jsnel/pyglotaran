@@ -20,6 +20,17 @@ tree-equivalent reference are the following:
 | `84d83899` | Hamamatsu ITEX IMG loader | Ported with loader tests |
 | `d14bd234`, `f7b6b4a2` | Branch analysis and architecture documentation | Replaced by this endpoint audit plus the focused port documents in this directory |
 
+### Follow-up source commits
+
+The source branch later gained three commits, ported on top of the commits above. Hashes are
+from the rebased branch `jsnel/scale_list_rebased`, whose Hamamatsu loader commit is `ca8d77e3`:
+
+| Source revision | Functionality | Staging coverage |
+| --- | --- | --- |
+| `2ce22078` | `skewed-gaussian-sum` shape; `spectral-model-clp-guide` megacomplex whose guide data are generated from a shape and refreshed with the parameters | Shape ported unchanged. Native element with inline `shapes`; missing guide datasets are created after experiment resolution and refreshed in the objective. The source `Project.create_scheme` guard has no staging counterpart. |
+| `2012541b` | Parameter markdown for labels that are also group prefixes; explicit outer join in linked-data alignment | Ported unchanged. |
+| `f93c60d4` | Guide result reports the current generated data and recomputes its data SVD | Data replacement ported; staging results do not keep data SVD variables, so nothing is recomputed. |
+
 The v0.8 implementation keeps its result layout and model architecture. `scale_list` is represented
 by `DataModel.scale_list`, validated when data are prepared, applied to unlinked and linked fitted
 matrices (including full models where the field is declared), and recorded in result metadata.

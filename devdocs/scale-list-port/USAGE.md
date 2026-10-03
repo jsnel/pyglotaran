@@ -37,6 +37,9 @@ The existing optimization defaults are retained when these options are omitted.
 | skip all dataset saving | existing `SAVING_OPTIONS_MINIMAL` (staging filters are exclusions) |
 | optimized parameter T-values | `to_dataframe(as_optimized=True)` or table saving with `as_optimized=True` |
 | Hamamatsu `.img` loading | `load_dataset("measurement.img")` |
+| `spectral-model-clp-guide` megacomplex, `shape: {target: shape_label}` | `spectral-model-clp-guide` element, shape inline under `shapes: {target: {...}}` |
+| `skewed-gaussian-sum` shape | same type; `amplitude`, `location`, `width`, `skewness` are equal-length lists |
+| guide dataset generated from the model | omit it from the `datasets` passed to `optimize`; it is generated |
 
 Grouped activation type strings are `multi-multi-gaussian`,
 `conv-multi-multi-gaussian` and `norm-conv-multi-multi-gaussian`.
@@ -82,6 +85,39 @@ all referenced parameters and use data with three global coordinates. Paired mod
 couples columns by position and requires equal counts. Fix a scale or provide a
 linked reference dataset when fitting scale lists; unconstrained CLPs can absorb
 free scales. Reordering data requires reordering the positional scale/IRF lists.
+
+## Spectral model CLP guides
+
+A `spectral-model-clp-guide` dataset needs no measured data. When its label is missing
+from the datasets passed to `optimize`, the optimization creates it with one model-axis
+point on the union of the spectral axes of the measured datasets in the same experiment,
+and recalculates its values from `shapes[target]` at every evaluation. Its residual is
+`scale * clp(target) - shape`, so the experiment `scale` and dataset `weights` set the
+guide strength. The result reports the guide data at the optimized parameters.
+
+```yaml
+library:
+  guide_s1:
+    type: spectral-model-clp-guide
+    target: s1
+    shapes:
+      s1:
+        type: skewed-gaussian-sum
+        amplitude: [shapes.s1.amplitude, shapes.s1v.amplitude]
+        location: [shapes.s1.location, shapes.s1v.location]
+        width: [shapes.s1.width, shapes.s1v.width]
+        skewness: [shapes.s1.skewness, shapes.s1v.skewness]
+experiments:
+  linked:
+    scale: {guide_s1_data: scale.s1}
+    datasets:
+      guide_s1_data:
+        elements: [guide_s1]
+        spectral_axis_inverted: true  # shape parameters in cm^-1 for nm data
+        spectral_axis_scale: 1.0e7
+        weights: [{value: 5000}]
+      measured: {elements: [kinetics], activations: {...}}
+```
 
 The validation workspace's external `validation.case_studies.migrate.convert_model`
 translates supported v0.7 dictionaries without rewriting the v0.8 core into v0.7.
