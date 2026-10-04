@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -10,9 +9,7 @@ from pandas.testing import assert_frame_equal
 
 from glotaran.io import load_parameters
 from glotaran.io import save_parameters
-
-if TYPE_CHECKING:
-    from glotaran.parameter import Parameters
+from glotaran.parameter import Parameters
 
 PANDAS_TEST_DATA = Path(__file__).parent / "data"
 PATH_XLSX = PANDAS_TEST_DATA / "reference_parameters.xlsx"
@@ -104,3 +101,11 @@ def test_replace_infinity(yaml_reference: Parameters, tmp_path: Path, format_nam
     assert f"{sep}inf" in first_data_line
 
     assert load_parameters(parameter_path) == yaml_reference
+
+
+def test_csv_round_trip_is_exact(tmp_path: Path):
+    """Values read from csv are bit-identical to the saved ones (pandas' default parser is not)."""
+    parameters = Parameters.from_list([0.10000585291620791, 3.9465416200909277e-05])
+    save_parameters(parameters, tmp_path / "parameters.csv")
+
+    assert load_parameters(tmp_path / "parameters.csv") == parameters
