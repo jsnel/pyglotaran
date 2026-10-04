@@ -55,6 +55,30 @@ def inject_saving_option_from_data_into_context(info: ValidationInfoWithContext)
     ) | info.data.get("saving_options", {})
 
 
+class Reconstruction(BaseModel):
+    """Provenance of a result recomputed from a record or an export.
+
+    The fields have no defaults, so saving the result always writes them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    original: dict[str, Any]
+    """Metadata of the original fit, as in its ``record.yml``: ``id``, ``uid``, ``summary``,
+    ``data``, ``environment`` and more."""
+    original_cost_history: list[float]
+    """Cost of every function evaluation of the original fit, empty if it was not recorded."""
+    created: str
+    """Time of the reconstruction."""
+    environment: dict[str, str]
+    """Versions of pyglotaran and its dependencies used for the reconstruction."""
+    data_differences: dict[str, list[str]]
+    """Differences of the data from the recorded data summary, by dataset."""
+    drift: dict[str, dict[str, float | None]]
+    """Recorded and recomputed cost and RMSE per dataset, with their relative difference
+    (``None`` if not comparable)."""
+
+
 class Result(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
@@ -66,6 +90,8 @@ class Result(BaseModel):
     initial_parameters: Parameters
     optimized_parameters: Parameters
     source_path: Path | None = None
+    reconstruction: Reconstruction | None = None
+    """Provenance of a result recomputed from a record, see :func:`~glotaran.project.recompute`."""
     record: RecordReference | None = Field(default=None, exclude=True)
     """The record of the fit, ``None`` if the fit was not recorded."""
 
