@@ -90,6 +90,26 @@ def test_save_scheme_from_string(tmp_path: Path):
     assert loaded_scheme.model_dump() == input_scheme.model_dump()
 
 
+def test_save_scheme_with_a_list_of_mappings(tmp_path: Path):
+    """Lists of mappings, such as clp penalties, are written as valid YAML."""
+    scheme_yml = (
+        TEST_SCHEME_YML
+        + """
+        clp_penalties:
+            - type: equal_area
+              source: s1
+              target: s1
+              parameter: rates.1
+              weight: 0.1
+"""
+    )
+    input_scheme = load_scheme(scheme_yml, format_name="yml_str")
+    save_path = tmp_path / "test_scheme.yml"
+    save_scheme(input_scheme, save_path)
+
+    assert load_scheme(save_path).model_dump() == input_scheme.model_dump()
+
+
 def test_save_scheme_from_file(tmp_path: Path):
     """YAML file roundtrip preserves comments."""
     input_path = tmp_path / "input_scheme.yml"
