@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import PrivateAttr
 from pydantic import SerializationInfo
 from pydantic import ValidationInfo
 from pydantic import field_serializer
@@ -94,6 +95,31 @@ class Result(BaseModel):
     """Provenance of a result recomputed from a record, see :func:`~glotaran.project.recompute`."""
     record: RecordReference | None = Field(default=None, exclude=True)
     """The record of the fit, ``None`` if the fit was not recorded."""
+    _fitted_parameters: Parameters = PrivateAttr(init=False)
+
+    def model_post_init(self, __context: Any) -> None:  # noqa: ANN401, PYI063
+        """Keep a copy of the optimized parameters, to detect later changes in place."""
+        super().model_post_init(__context)
+        self._fitted_parameters = self.optimized_parameters.copy()
+
+    def parameters_changed_since_fit(self) -> list[str]:
+        """Labels of the optimized parameters changed in place since the fit or loading.
+
+        Returns
+        -------
+        list[str]
+            The labels of the parameters with changed fields, added or removed parameters.
+        """
+        fitted, current = self._fitted_parameters, self.optimized_parameters
+        return [
+            label
+            for label in dict.fromkeys([*fitted.labels, *current.labels])
+            if not (
+                fitted.has(label)
+                and current.has(label)
+                and fitted.get(label)._deep_equals(current.get(label))  # noqa: SLF001
+            )
+        ]
 
     @property
     def experiments(self) -> dict[str, ExperimentModel]:

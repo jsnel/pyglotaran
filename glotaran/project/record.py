@@ -103,6 +103,17 @@ def find_project_root(start: StrOrPath | None = None) -> Path | None:
     )
 
 
+def project_folder() -> Path:
+    """Return the project root of the working directory, or the working directory itself.
+
+    Returns
+    -------
+    Path
+        The folder that holds ``results`` and ``exports`` by default.
+    """
+    return find_project_root() or Path.cwd()
+
+
 def resolve_results_folder(output_folder: StrOrPath | None = None) -> Path:
     """Resolve the base folder of records to an absolute path.
 
@@ -123,7 +134,7 @@ def resolve_results_folder(output_folder: StrOrPath | None = None) -> Path:
     )
     if folder:
         return Path(folder).resolve()
-    return (find_project_root() or Path.cwd()) / "results"
+    return project_folder() / "results"
 
 
 def recording_enabled(*, record: bool | None, output_folder: StrOrPath | None) -> bool:
