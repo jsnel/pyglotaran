@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 
 
 class ParameterHistory:
-    """A class representing a history of parameters."""
+    """A history of parameter values, one row per function evaluation.
+
+    The values are the parameter values as the user sees them, not the values the optimizer
+    works with (which are logarithms for non-negative parameters).
+    """
 
     def __init__(self) -> None:  # noqa: D107
         self._parameter_labels: list[str] = []
@@ -123,35 +127,32 @@ class ParameterHistory:
         self.source_path = Path(path).as_posix()
         self.to_dataframe().to_csv(path, sep=delimiter, index=False)
 
-    def append(self, parameters: Parameters, current_iteration: int = 0) -> None:
-        """Append :class:`Parameters` to the history.
+    def append(self, parameters: Parameters, evaluation: int = 0) -> None:
+        """Append the values of :class:`Parameters` to the history.
 
         Parameters
         ----------
         parameters : Parameters
-            The group to append.
-        current_iteration: int
-            Current iteration of the optimizer.
+            The parameters to append.
+        evaluation: int
+            Number of the function evaluation the values belong to, 0 for the initial values.
 
         Raises
         ------
         ValueError
             Raised if the parameter labels differs from previous.
         """
-        (
-            parameter_labels,
-            parameter_values,
-            _,
-            _,
-        ) = parameters.get_label_value_and_bounds_arrays()
-        parameter_labels = ["iteration", *parameter_labels]
+        parameters.update_parameter_expression()
+        parameter_labels = ["evaluation", *(parameter.label for parameter in parameters.all())]
         if len(self._parameter_labels) == 0:
             self._parameter_labels = parameter_labels
         if parameter_labels != self.parameter_labels:
             msg = "Cannot append parameters. Parameter labels do not match existing."
             raise ValueError(msg)
 
-        self._parameters.append(np.array([current_iteration, *parameter_values]))
+        self._parameters.append(
+            np.array([evaluation, *(parameter.value for parameter in parameters.all())])
+        )
 
     def get_parameters(self, index: int) -> np.ndarray:
         """Get parameters for a history index.

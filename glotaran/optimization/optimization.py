@@ -85,6 +85,7 @@ class Optimization:
             "Dogbox",
             "Levenberg-Marquardt",
         ] = "TrustRegionReflection",
+        record_parameter_history: bool = False,
     ) -> None:
         self._parameters = Parameters.empty()
         models = [
@@ -108,6 +109,9 @@ class Optimization:
             raise UnsupportedMethodError(optimization_method)
         self._optimization_method = SUPPORTED_OPTIMIZATION_METHODS[optimization_method]
 
+        self._number_of_evaluations = 0
+        self._cost_history: list[float] = []
+        self._record_parameter_history = record_parameter_history
         self._parameter_history = ParameterHistory()
         self._parameter_history.append(self._parameters)
         self._free_parameter_labels, _, _, _ = self._parameters.get_label_value_and_bounds_arrays(
@@ -192,25 +196,22 @@ class Optimization:
             self._free_parameter_labels,
             termination_reason,
             number_of_clps,
+            self._number_of_evaluations,
         )
         return self._parameters, optimization_results, optimization_info
 
     def dry_run(self) -> tuple[Parameters, dict[str, OptimizationResult], OptimizationInfo]:
-        termination_reason = "Dry run."
-
         penalty = np.concatenate([o.calculate() for o in self._objectives])
         results = [o.get_result() for o in self._objectives]
         data = dict(ChainMap(*[r.optimization_results for r in results]))
         number_of_clps = sum(r.clp_size for r in results)
         additional_penalty = sum(r.additional_penalty for r in results)
-        result = OptimizationInfo.from_least_squares_result(
-            None,
+        result = OptimizationInfo.from_dry_run(
             self._parameter_history,
             OptimizationHistory.from_stdout_str(self._tee.read()),
             penalty,
             additional_penalty,
             self._free_parameter_labels,
-            termination_reason,
             number_of_clps,
         )
         return self._parameters, data, result
@@ -228,5 +229,34 @@ class Optimization:
         ArrayLike
             The objective for the optimizer.
         """
+        self._number_of_evaluations += 1
         self._parameters.set_from_label_and_value_arrays(self._free_parameter_labels, parameters)
-        return np.concatenate([o.calculate() for o in self._objectives])
+        if self._record_parameter_history:
+            self._parameter_history.append(self._parameters, self._number_of_evaluations)
+        penalty = np.concatenate([o.calculate() for o in self._objectives])
+        self._cost_history.append(0.5 * float(np.dot(penalty, penalty)))
+        return penalty
+
+    @property
+    def parameters(self) -> Parameters:
+        """The parameters of the last function evaluation."""
+        return self._parameters
+
+    @property
+    def number_of_evaluations(self) -> int:
+        """The number of started function evaluations, including those for the Jacobian."""
+        return self._number_of_evaluations
+
+    @property
+    def cost_history(self) -> list[float]:
+        """The cost of each completed function evaluation, in call order.
+
+        This includes the evaluations for finite-difference Jacobians and rejected trial
+        steps, which SciPy does not count in ``nfev``.
+        """
+        return self._cost_history
+
+    @property
+    def parameter_history(self) -> ParameterHistory:
+        """The initial parameter values and, if recorded, those of each function evaluation."""
+        return self._parameter_history

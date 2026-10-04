@@ -37,7 +37,17 @@ class OptimizationInfo(BaseModel):
     """The number of function evaluations."""
 
     success: bool
-    """Indicates if the optimization was successful."""
+    """Indicates if the optimizer returned a result.
+
+    Also ``True`` when the optimizer stopped at the maximum number of function evaluations,
+    see :attr:`converged`.
+    """
+
+    converged: bool | None = None
+    """Whether the optimizer met its convergence tolerances (SciPy's ``success`` flag).
+
+    ``None`` for a dry run, which does not optimize.
+    """
 
     termination_reason: str
     """The reason (message when) the optimizer terminated"""
@@ -145,46 +155,120 @@ class OptimizationInfo(BaseModel):
         free_parameter_labels: list[str],
         termination_reason: str,
         number_of_clps: int,
+        number_of_evaluations: int,
     ) -> Self:
         success = result is not None
 
         result_args = {
             "success": success,
+            "converged": bool(result.success) if success else False,  # type:ignore[union-attr]
             "free_parameter_labels": free_parameter_labels,
             "parameter_history": parameter_history,
             "termination_reason": termination_reason,
             "optimization_history": optimization_history,
             "number_of_function_evaluations": result.nfev  # type:ignore[union-attr]
             if success
-            else parameter_history.number_of_records,
+            else number_of_evaluations,
             "cost": 0.5 * np.dot(penalty, penalty),
         }
 
         if success:
-            result_args["number_of_clps"] = number_of_clps
+            result_args |= calculate_residual_statistics(
+                result.fun,  # type:ignore[union-attr]
+                result.x.size,  # type:ignore[union-attr]
+                number_of_clps,
+            )
             result_args["additional_penalty"] = additional_penalty
             result_args["number_of_jacobian_evaluations"] = result.njev  # type:ignore[union-attr]
             result_args["optimality"] = float(result.optimality)  # type:ignore[union-attr]
-            result_args["number_of_data_points"] = result.fun.size  # type:ignore[union-attr]
-            result_args["number_of_parameters"] = result.x.size  # type:ignore[union-attr]
-            result_args["degrees_of_freedom"] = (
-                result_args["number_of_data_points"]
-                - result_args["number_of_parameters"]
-                - result_args["number_of_clps"]
-            )
-            result_args["chi_square"] = float(np.sum(result.fun**2))  # type:ignore[union-attr]
-            result_args["reduced_chi_square"] = (
-                result_args["chi_square"] / result_args["degrees_of_freedom"]
-            )
-            result_args["root_mean_square_error"] = float(
-                np.sqrt(result_args["reduced_chi_square"])
-            )
             result_args["jacobian"] = result.jac  # type:ignore[union-attr]
             result_args["covariance_matrix"] = calculate_covariance_matrix_and_standard_errors(
                 result_args["jacobian"], result_args["root_mean_square_error"]
             )
 
         return cls(**result_args)
+
+    @classmethod
+    def from_dry_run(
+        cls,
+        parameter_history: ParameterHistory,
+        optimization_history: OptimizationHistory,
+        penalty: ArrayLike,
+        additional_penalty: float,
+        free_parameter_labels: list[str],
+        number_of_clps: int,
+    ) -> Self:
+        """Create the info of a dry run, one function evaluation without optimization.
+
+        The statistics of the residual are calculated as for an optimization. The Jacobian,
+        and with it the covariance matrix and the standard errors, are not calculated.
+
+        Parameters
+        ----------
+        parameter_history : ParameterHistory
+            The parameter history.
+        optimization_history : OptimizationHistory
+            The optimization history.
+        penalty : ArrayLike
+            The penalty of the evaluation.
+        additional_penalty : float
+            The additional penalty of the evaluation.
+        free_parameter_labels : list[str]
+            The labels of the free parameters.
+        number_of_clps : int
+            The number of conditionally linear parameters.
+
+        Returns
+        -------
+        Self
+            The info of the dry run.
+        """
+        return cls(
+            success=False,
+            termination_reason="Dry run.",
+            free_parameter_labels=free_parameter_labels,
+            parameter_history=parameter_history,
+            optimization_history=optimization_history,
+            number_of_function_evaluations=1,
+            cost=0.5 * np.dot(penalty, penalty),
+            additional_penalty=additional_penalty,
+            **calculate_residual_statistics(penalty, len(free_parameter_labels), number_of_clps),
+        )
+
+
+def calculate_residual_statistics(
+    residual: ArrayLike, number_of_parameters: int, number_of_clps: int
+) -> dict[str, Any]:
+    """Calculate the statistics of a residual vector.
+
+    Parameters
+    ----------
+    residual : ArrayLike
+        The residual vector, including penalties.
+    number_of_parameters : int
+        The number of free parameters.
+    number_of_clps : int
+        The number of conditionally linear parameters.
+
+    Returns
+    -------
+    dict[str, Any]
+        The number of data points, parameters and clps, the degrees of freedom, the
+        chi-square, the reduced chi-square and the root mean square error, keyed by the
+        names of the :class:`OptimizationInfo` fields.
+    """
+    degrees_of_freedom = residual.size - number_of_parameters - number_of_clps
+    chi_square = float(np.sum(residual**2))
+    reduced_chi_square = chi_square / degrees_of_freedom
+    return {
+        "number_of_data_points": residual.size,
+        "number_of_parameters": number_of_parameters,
+        "number_of_clps": number_of_clps,
+        "degrees_of_freedom": degrees_of_freedom,
+        "chi_square": chi_square,
+        "reduced_chi_square": reduced_chi_square,
+        "root_mean_square_error": float(np.sqrt(reduced_chi_square)),
+    }
 
 
 def calculate_parameter_errors(
