@@ -114,7 +114,10 @@ def test_result_serde_default(tmp_path: Path):
     assert isinstance(deserialized_sequential_results.activations["irf"], xr.Dataset)
     assert isinstance(deserialized_sequential_results.input_data, xr.Dataset)
     assert isinstance(deserialized_sequential_results.residuals, xr.Dataset)
-    assert isinstance(deserialized_sequential_results.fitted_data, xr.Dataset)
+    xr.testing.assert_allclose(
+        deserialized_sequential_results.fitted_data,
+        RESULT.optimization_results["sequential-decay"].fitted_data,
+    )
 
 
 # We expect warnings about missing data when using minimal saving options
@@ -339,6 +342,34 @@ def test_result_optimizer_settings_round_trip(tmp_path: Path, settings: dict):
 
     assert loaded.optimizer_settings is not None
     assert loaded.optimizer_settings.model_dump() == expected
+
+
+def test_result_input_data_keeps_dataset_weight(tmp_path: Path):
+    """A ``weight`` variable of the input dataset is kept in the input data and round-trips."""
+    assert isinstance(RESULT.optimization_results["sequential-decay"].input_data, xr.DataArray)
+
+    dataset = DATASET.copy()
+    # Transposed on purpose, the result stores it in the dimension order of the data.
+    dataset["weight"] = xr.full_like(dataset.data, 0.5).T
+    result = Scheme.from_dict(SCHEME_DICT).optimize(
+        PARAMETERS,
+        {"sequential-decay": dataset},
+        verbose=False,
+        maximum_number_function_evaluations=1,
+    )
+    optimization_result = result.optimization_results["sequential-decay"]
+
+    assert isinstance(optimization_result.input_data, xr.Dataset)
+    assert (
+        optimization_result.input_data["weight"].dims == optimization_result.input_data.data.dims
+    )
+    xr.testing.assert_equal(optimization_result.input_data["weight"].T, dataset.weight)
+
+    result.save(tmp_path)
+    loaded = load_result(tmp_path).optimization_results["sequential-decay"]
+
+    xr.testing.assert_equal(loaded.input_data["weight"], optimization_result.input_data["weight"])
+    xr.testing.assert_allclose(loaded.fitted_data, optimization_result.fitted_data)
 
 
 if __name__ == "__main__":

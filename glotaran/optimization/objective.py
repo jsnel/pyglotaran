@@ -67,6 +67,56 @@ def add_svd_to_result_dataset(dataset: xr.Dataset, global_dim: str, model_dim: s
         )
 
 
+def create_input_data(
+    data: OptimizationData, result_dataset: xr.Dataset
+) -> xr.DataArray | xr.Dataset:
+    """Create the input data of a result.
+
+    Parameters
+    ----------
+    data : OptimizationData
+        Optimization data of the dataset.
+    result_dataset : xr.Dataset
+        Result dataset holding the input ``data`` and, if the input dataset had one, ``weight``.
+
+    Returns
+    -------
+    xr.DataArray | xr.Dataset
+        The input data, or a dataset with ``data`` and ``weight`` if the input dataset had a
+        ``weight`` variable. Weights defined in the scheme are part of the scheme.
+    """
+    assert isinstance(data.model.data, xr.Dataset)
+    input_data = result_dataset["data"]
+    if "weight" not in data.model.data:
+        return input_data
+    return xr.Dataset(
+        {"data": input_data, "weight": result_dataset["weight"].transpose(*input_data.dims)},
+        attrs=input_data.attrs,
+    )
+
+
+def as_data_array(value: xr.DataArray | xr.Dataset, name: str) -> xr.DataArray:
+    """Return ``value``, or its variable ``name`` (else its only variable) if it is a dataset.
+
+    Loaded results and input data with a ``weight`` hold datasets instead of data arrays.
+
+    Parameters
+    ----------
+    value : xr.DataArray | xr.Dataset
+        The data array or dataset.
+    name : str
+        Name of the variable to use if ``value`` is a dataset.
+
+    Returns
+    -------
+    xr.DataArray
+        The data array.
+    """
+    if isinstance(value, xr.DataArray):
+        return value
+    return value[name] if name in value else next(iter(value.data_vars.values()))
+
+
 def calculate_root_mean_square_error(residual: xr.DataArray) -> float:
     """Calculate root mean square error from residual.
 
@@ -196,7 +246,9 @@ class OptimizationResult(BaseModel):
                 stacklevel=2,
             )
             return None
-        fitted_data = self.input_data - self.residuals
+        fitted_data = as_data_array(self.input_data, "data") - as_data_array(
+            self.residuals, "residual"
+        )
         fitted_data.attrs |= self.meta.model_dump(exclude_defaults=True)
         return fitted_data
 
@@ -700,7 +752,7 @@ class OptimizationObjective:
 
         add_svd_to_result_dataset(result_dataset, global_dim, model_dim)
         result = OptimizationResult(
-            input_data=result_dataset.data,
+            input_data=create_input_data(self._data, result_dataset),
             residuals=result_dataset.residual,
             elements={
                 label: xr.Dataset(
@@ -775,10 +827,9 @@ class OptimizationObjective:
 
         self._data.unweight_result_dataset(result_dataset)
         add_svd_to_result_dataset(result_dataset, global_dim, model_dim)
-        input_data = result_dataset.data
-        input_data.attrs |= self._data.original_dataset_attributes.copy()
+        result_dataset.data.attrs |= self._data.original_dataset_attributes.copy()
         result = OptimizationResult(
-            input_data=input_data,
+            input_data=create_input_data(self._data, result_dataset),
             residuals=result_dataset.residual,
             elements=element_results,
             activations=activations,
@@ -952,7 +1003,7 @@ class OptimizationObjective:
         )
 
         return OptimizationResult(
-            input_data=result_dataset.data,
+            input_data=create_input_data(data, result_dataset),
             residuals=result_dataset.residual,
             elements=element_results,
             activations=activations,

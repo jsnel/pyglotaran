@@ -486,13 +486,15 @@ def test_result_data(weight: bool):
     assert np.array_equal(
         data_model.data.coords["global_dim"], element_results.coords["global_dim"]
     )
-    assert optimization_result.input_data.shape == data_model.data.data.shape
-    assert np.allclose(optimization_result.input_data, data_model.data.data)
+    input_data = optimization_result.input_data
     if weight:
-        # TODO: find the lost weights
-        # assert "weight" in result_data
+        assert isinstance(input_data, xr.Dataset)
+        assert np.allclose(input_data.weight, data_model.data.weight)
+        input_data = input_data.data
+        # TODO: find the lost weighted residual
         # assert "weighted_residual" in result_data
-        pass
+    assert input_data.shape == data_model.data.data.shape
+    assert np.allclose(input_data, data_model.data.data)
 
 
 def test_penalty():
