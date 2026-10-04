@@ -16,6 +16,10 @@ from glotaran.optimization import Optimization
 from glotaran.optimization import OptimizerSettings
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
+from glotaran.project.record import RecordWriter
+from glotaran.project.record import parameter_history_enabled
+from glotaran.project.record import recording_enabled
+from glotaran.project.record import resolve_results_folder
 from glotaran.utils.io import load_datasets
 
 if TYPE_CHECKING:
@@ -27,6 +31,7 @@ if TYPE_CHECKING:
     from glotaran.parameter import Parameters
     from glotaran.project.result import Result
     from glotaran.typing.types import DatasetMappable
+    from glotaran.typing.types import StrOrPath
 
 
 class Scheme(BaseModel):
@@ -86,15 +91,78 @@ class Scheme(BaseModel):
         dry_run: bool = False,
         verbose: bool = True,
         raise_exception: bool = False,
+        record: bool | None = None,
+        output_folder: StrOrPath | None = None,
+        record_parameter_history: bool | None = None,
+        name: str | None = None,
     ) -> Result:
+        """Fit the scheme to the datasets.
+
+        Every fit is recorded in a numbered folder (``results/001``, ``results/002``, ...),
+        with what is needed to recompute its results from the input data, see
+        :mod:`glotaran.project.record`. A dry run is not recorded.
+
+        Parameters
+        ----------
+        parameters : Parameters
+            The initial parameters.
+        datasets : DatasetMappable
+            The datasets by label, as datasets or paths.
+        maximum_number_function_evaluations : int | None
+            The maximum number of function evaluations, by default unlimited.
+        ftol : float
+            Tolerance for termination by the change of the cost.
+        gtol : float
+            Tolerance for termination by the norm of the gradient.
+        xtol : float
+            Tolerance for termination by the change of the parameters.
+        optimization_method : Literal["TrustRegionReflection", "Dogbox", "Levenberg-Marquardt"]
+            The optimization method.
+        add_svd : bool
+            Unused.
+        dry_run : bool
+            Evaluate the model once at the initial parameters instead of fitting.
+        verbose : bool
+            Print the progress of the optimizer and the record folder.
+        raise_exception : bool
+            Raise an exception of the optimizer instead of warning and returning the result.
+        record : bool | None
+            Whether to record the fit. By default as set in
+            :data:`~glotaran.project.record.record_settings`, else recorded.
+        output_folder : StrOrPath | None
+            Base folder of the record, which also switches recording on. By default
+            ``results`` in the project root (the folder with ``project.gta``) or the working
+            directory.
+        record_parameter_history : bool | None
+            Whether to record the parameter values of every function evaluation.
+        name : str | None
+            A label for the record.
+
+        Returns
+        -------
+        Result
+            The result of the fit. ``Result.record`` refers to its record.
+        """
         # Prevent circular import error
         from glotaran.project.result import Result  # noqa: PLC0415
 
+        results_folder = (
+            resolve_results_folder(output_folder)
+            if recording_enabled(record=record, output_folder=output_folder) and not dry_run
+            else None
+        )
         # The result gets its own copies of the scheme, parameters and data, so later edits
         # of the inputs or later fits do not change it.
         scheme = self.model_copy(deep=True)
         scheme._load_data(  # noqa: SLF001
             {label: dataset.copy(deep=True) for label, dataset in load_datasets(datasets).items()}
+        )
+        optimizer_settings = OptimizerSettings(
+            optimization_method=optimization_method,
+            ftol=ftol,
+            gtol=gtol,
+            xtol=xtol,
+            maximum_number_function_evaluations=maximum_number_function_evaluations,
         )
         optimization = Optimization(
             models=list(scheme.experiments.values()),
@@ -102,30 +170,47 @@ class Scheme(BaseModel):
             library=scheme.library,
             verbose=verbose,
             raise_exception=raise_exception,
-            maximum_number_function_evaluations=maximum_number_function_evaluations,
             add_svd=add_svd,
-            ftol=ftol,
-            gtol=gtol,
-            xtol=xtol,
-            optimization_method=optimization_method,
-        )
-        optimized_parameters, optimized_data, optimization_info = (
-            optimization.dry_run() if dry_run else optimization.run()
-        )
-        calculate_parameter_errors(
-            optimization_info=optimization_info, parameters=optimized_parameters
-        )
-        return Result(
-            optimization_results=optimized_data,
-            scheme=scheme,
-            optimization_info=optimization_info,
-            optimizer_settings=OptimizerSettings(
-                optimization_method=optimization_method,
-                ftol=ftol,
-                gtol=gtol,
-                xtol=xtol,
-                maximum_number_function_evaluations=maximum_number_function_evaluations,
+            record_parameter_history=parameter_history_enabled(
+                record_parameter_history=record_parameter_history
             ),
-            initial_parameters=parameters.copy(),
-            optimized_parameters=optimized_parameters,
+            **optimizer_settings.model_dump(),
         )
+        writer = (
+            None
+            if results_folder is None
+            else RecordWriter.start(
+                results_folder,
+                scheme=scheme,
+                initial_parameters=parameters,
+                optimizer_settings=optimizer_settings,
+                name=name,
+                parameter_history=parameter_history_enabled(
+                    record_parameter_history=record_parameter_history
+                ),
+            )
+        )
+        try:
+            optimized_parameters, optimized_data, optimization_info = (
+                optimization.dry_run() if dry_run else optimization.run()
+            )
+            calculate_parameter_errors(
+                optimization_info=optimization_info, parameters=optimized_parameters
+            )
+            result = Result(
+                optimization_results=optimized_data,
+                scheme=scheme,
+                optimization_info=optimization_info,
+                optimizer_settings=optimizer_settings,
+                initial_parameters=parameters.copy(),
+                optimized_parameters=optimized_parameters,
+            )
+        except BaseException as error:
+            if writer is not None:
+                writer.finish(optimization, error=error)
+            raise
+        if writer is not None:
+            result.record = writer.finish(optimization, result=result)
+            if verbose:
+                print(f"Recorded the fit in '{result.record.path}'.")  # noqa: T201
+        return result

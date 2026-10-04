@@ -109,6 +109,7 @@ class Optimization:
             raise UnsupportedMethodError(optimization_method)
         self._optimization_method = SUPPORTED_OPTIMIZATION_METHODS[optimization_method]
 
+        self._error: Exception | None = None
         self._number_of_evaluations = 0
         self._cost_history: list[float] = []
         self._record_parameter_history = record_parameter_history
@@ -134,7 +135,6 @@ class Optimization:
         ) = self._parameters.get_label_value_and_bounds_arrays(exclude_non_vary=True)
         ls_result = None
         termination_reason = ""
-        optimization_error = None
         no_free_parameters = initial_parameter.size == 0
         with self._tee:
             if no_free_parameters:
@@ -160,7 +160,7 @@ class Optimization:
                         raise
                     warn(f"Optimization failed:\n\n{e}", stacklevel=3)
                     termination_reason = str(e)
-                    optimization_error = e
+                    self._error = e
 
         # TODO: check how this works for multiple experiments with possible the same dataset name
         try:
@@ -168,9 +168,9 @@ class Optimization:
         except Exception:
             # After a failed optimization this evaluates the parameters that failed,
             # so the error of the optimization is the one to report.
-            if optimization_error is None:
+            if self._error is None:
                 raise
-            raise optimization_error from None
+            raise self._error from None
         if no_free_parameters:
             ls_result = OptimizeResult(
                 x=initial_parameter,
@@ -241,6 +241,11 @@ class Optimization:
     def parameters(self) -> Parameters:
         """The parameters of the last function evaluation."""
         return self._parameters
+
+    @property
+    def error(self) -> Exception | None:
+        """The exception of a failed optimization with ``raise_exception=False``."""
+        return self._error
 
     @property
     def number_of_evaluations(self) -> int:

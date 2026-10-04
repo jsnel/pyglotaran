@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
+from pydantic import Field
 from pydantic import SerializationInfo
 from pydantic import ValidationInfo
 from pydantic import field_serializer
@@ -22,6 +23,7 @@ from glotaran.optimization import OptimizationInfo  # noqa: TC001
 from glotaran.optimization import OptimizerSettings  # noqa: TC001
 from glotaran.optimization.objective import OptimizationResult
 from glotaran.parameter import Parameters  # noqa: TC001
+from glotaran.project.record import RecordReference  # noqa: TC001
 from glotaran.project.scheme import Scheme
 from glotaran.utils.io import relative_posix_path
 from glotaran.utils.pydantic_serde import ValidationInfoWithContext
@@ -64,6 +66,8 @@ class Result(BaseModel):
     initial_parameters: Parameters
     optimized_parameters: Parameters
     source_path: Path | None = None
+    record: RecordReference | None = Field(default=None, exclude=True)
+    """The record of the fit, ``None`` if the fit was not recorded."""
 
     @property
     def experiments(self) -> dict[str, ExperimentModel]:

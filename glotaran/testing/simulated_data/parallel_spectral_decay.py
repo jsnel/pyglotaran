@@ -44,4 +44,4 @@ SCHEME_DICT = {
 
 SCHEME = Scheme.from_dict(SCHEME_DICT)
 
-RESULT = SCHEME.optimize(PARAMETERS, {"parallel-decay": DATASET})
+RESULT = SCHEME.optimize(PARAMETERS, {"parallel-decay": DATASET}, record=False)
