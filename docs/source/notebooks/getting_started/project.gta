@@ -1,0 +1,13 @@
+# Description of this project and its data. pyglotaran only checks that this file
+# exists; every export contains a copy. All fields are optional.
+title: Getting started with pyglotaran
+description: >
+  Global analysis of a simulated sequential decay with three species, for the getting
+  started guide of pyglotaran.
+data_description: >
+  Simulated time-resolved spectra from glotaran.testing.simulated_data: 2100 time points
+  from -1 to 20, 72 wavelengths from 600 to 699.4 nm, Gaussian instrument response,
+  normally distributed noise with standard deviation 0.01.
+creators:
+  - name: The pyglotaran developers
+keywords: [global analysis, getting started]

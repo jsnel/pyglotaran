@@ -7,6 +7,16 @@
 ### ✨ Features
 
 - ✨ Add a native v0.8 PFID element for perturbed free-induction-decay fitting (#1510)
+- ✨ Record every fit in a numbered folder (`results/001`, ...) with the scheme, the
+  parameters, the optimizer settings, the cost of every function evaluation and a summary
+  of the input data; a folder with a `project.gta` file is a project and holds the
+  records. Recording can be switched off per call, per session or with
+  `GLOTARAN_RECORD=0`
+- ✨ Record the lineage of fits started from the optimized parameters of an earlier fit, or
+  from a parent named with `optimize(..., parent=...)`
+- ✨ Add `recompute`, `list_results`, `compare_results` and `export` to `glotaran.project`
+  to recompute a recorded fit from its input data, list and compare fits, and export a
+  result as a self-contained folder
 
 ### 👌 Minor Improvements:
 
@@ -16,6 +26,13 @@
 - 👌 Avoid repeated coordinate alignment during optimization result construction and Gaussian
   dispersion calculations
 - 👌 Preserve shared optimization matrices when applying index-dependent scaling
+- 👌 Store the optimizer settings in `Result.optimizer_settings` and `result.yml`
+- 👌 Add `OptimizationInfo.converged` (SciPy's success flag); `success` stays `True`
+  whenever the optimizer returns
+- 👌 Calculate chi-square, RMSE and degrees of freedom for a dry run
+- 👌 Collect the cost of every function evaluation for all optimization methods and
+  `verbose=False`; the parameter history holds parameter values (not their logarithms)
+  per function evaluation, its first column is named `evaluation`
 
 ### 🩹 Bug fixes
 
@@ -34,12 +51,20 @@
 - 🩹 Resolve parameters of discriminated-union item fields (e.g. activations) on Python 3.14
 - 🩹 Add noise in `simulate(noise=True)` without a `noise_seed`; the seed defaults to 42,
   and `noise_seed=None` draws fresh noise
+- 🩹 Stop `Scheme.optimize` from sharing the scheme, the parameters and the data arrays with
+  its inputs, so later edits or fits no longer change an earlier result
+- 🩹 Keep a `weight` variable of the input dataset in `input_data` of the result
+- 🩹 Compute `fitted_data` of a result loaded with `load_result` (it was an empty dataset)
+- 🩹 Report the optimizer's error when the evaluation after a failed optimization fails too
+- 🩹 Read parameter csv files with round-trip float precision
 
 ### 📚 Documentation
 
 - 📚 Recommend uv in the installation and contributing guides and update the authors list
 - 📚 Port the getting started notebook from the removed `Project` API to `load_scheme`,
   `load_parameters` and `Scheme.optimize`
+- 📚 Show records, `list_results` and `export` in the getting started notebook and document
+  recording, recompute and export in the user documentation
 
 ### 🗑️ Deprecations (due in 0.9.0)
 
