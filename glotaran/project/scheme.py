@@ -15,10 +15,12 @@ from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization import Optimization
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
-from glotaran.utils.io import DatasetMapping
 from glotaran.utils.io import load_datasets
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    import xarray as xr
     from typing_extensions import Self
 
     from glotaran.parameter import Parameters
@@ -49,7 +51,7 @@ class Scheme(BaseModel):
                     d.data = load_dataset(d.data)
         return cls(experiments=experiments, library=library, source_path=source_path)
 
-    def _load_data(self, datasets: DatasetMapping) -> None:
+    def _load_data(self, datasets: Mapping[str, xr.Dataset]) -> None:
         try:
             for experiment in self.experiments.values():
                 for label, data_model in experiment.datasets.items():
@@ -87,11 +89,16 @@ class Scheme(BaseModel):
         # Prevent circular import error
         from glotaran.project.result import Result  # noqa: PLC0415
 
-        self._load_data(load_datasets(datasets))
+        # The result gets its own copies of the scheme, parameters and data, so later edits
+        # of the inputs or later fits do not change it.
+        scheme = self.model_copy(deep=True)
+        scheme._load_data(  # noqa: SLF001
+            {label: dataset.copy(deep=True) for label, dataset in load_datasets(datasets).items()}
+        )
         optimization = Optimization(
-            models=list(self.experiments.values()),
+            models=list(scheme.experiments.values()),
             parameters=parameters,
-            library=self.library,
+            library=scheme.library,
             verbose=verbose,
             raise_exception=raise_exception,
             maximum_number_function_evaluations=maximum_number_function_evaluations,
@@ -109,8 +116,8 @@ class Scheme(BaseModel):
         )
         return Result(
             optimization_results=optimized_data,
-            scheme=self,
+            scheme=scheme,
             optimization_info=optimization_info,
-            initial_parameters=parameters,
+            initial_parameters=parameters.copy(),
             optimized_parameters=optimized_parameters,
         )

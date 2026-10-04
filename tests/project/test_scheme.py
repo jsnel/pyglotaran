@@ -8,6 +8,11 @@ from glotaran.builtin.items.activation import ActivationDataModel
 from glotaran.parameter import Parameters
 from glotaran.project.scheme import Scheme
 from glotaran.simulation import simulate
+from glotaran.testing.simulated_data.sequential_spectral_decay import DATASET as SEQUENTIAL_DATASET
+from glotaran.testing.simulated_data.sequential_spectral_decay import (
+    SCHEME_DICT as SEQUENTIAL_SCHEME_DICT,
+)
+from glotaran.testing.simulated_data.shared_decay import PARAMETERS as SEQUENTIAL_PARAMETERS
 
 test_scheme_dict = {
     "library": {
@@ -81,3 +86,35 @@ def test_scheme():
 def test_scheme_round_trip_serialization():
     """Dumping a scheme returns the original dict."""
     assert Scheme.from_dict(test_scheme_dict).model_dump(exclude_unset=True) == test_scheme_dict
+
+
+def test_optimize_result_does_not_share_inputs():
+    """Later fits, scheme edits and in-place data changes leave an earlier result unchanged."""
+    scheme = Scheme.from_dict(SEQUENTIAL_SCHEME_DICT)
+    parameters = SEQUENTIAL_PARAMETERS.copy()
+    dataset = SEQUENTIAL_DATASET.copy(deep=True)
+    result = scheme.optimize(
+        parameters, {"sequential-decay": dataset}, maximum_number_function_evaluations=1
+    )
+    optimization_result = result.optimization_results["sequential-decay"]
+    input_data = optimization_result.input_data.copy(deep=True)
+    fitted_data = optimization_result.fitted_data.copy(deep=True)
+    initial_values = result.initial_parameters.to_dataframe()
+    scheme_dump = result.scheme.model_dump(exclude_unset=True)
+
+    assert result.scheme is not scheme
+    assert result.initial_parameters is not parameters
+
+    dataset["data"] *= 2
+    parameters.get("rates.species_1").value = 0.6
+    scheme.library["sequential"].rates[("s2", "s1")] = "rates.species_2"
+    Scheme.from_dict(SEQUENTIAL_SCHEME_DICT).optimize(
+        parameters,
+        {"sequential-decay": dataset},
+        maximum_number_function_evaluations=1,
+    )
+
+    assert optimization_result.input_data.equals(input_data)
+    assert optimization_result.fitted_data.equals(fitted_data)
+    assert result.initial_parameters.to_dataframe().equals(initial_values)
+    assert result.scheme.model_dump(exclude_unset=True) == scheme_dump
