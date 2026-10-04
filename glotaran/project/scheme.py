@@ -13,6 +13,7 @@ from glotaran.io import load_dataset
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization import Optimization
+from glotaran.optimization import OptimizerSettings
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
 from glotaran.utils.io import load_datasets
@@ -118,6 +119,13 @@ class Scheme(BaseModel):
             optimization_results=optimized_data,
             scheme=scheme,
             optimization_info=optimization_info,
+            optimizer_settings=OptimizerSettings(
+                optimization_method=optimization_method,
+                ftol=ftol,
+                gtol=gtol,
+                xtol=xtol,
+                maximum_number_function_evaluations=maximum_number_function_evaluations,
+            ),
             initial_parameters=parameters.copy(),
             optimized_parameters=optimized_parameters,
         )

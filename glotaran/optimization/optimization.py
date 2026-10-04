@@ -6,6 +6,8 @@ from typing import Literal
 from warnings import warn
 
 import numpy as np
+from pydantic import BaseModel
+from pydantic import ConfigDict
 from scipy.optimize import OptimizeResult
 from scipy.optimize import least_squares
 
@@ -30,6 +32,21 @@ SUPPORTED_OPTIMIZATION_METHODS = {
     "Dogbox": "dogbox",
     "Levenberg-Marquardt": "lm",
 }
+
+
+class OptimizerSettings(BaseModel):
+    """Optimizer settings of a fit, as passed to ``Scheme.optimize``.
+
+    The fields have no defaults, so saving a result always writes them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    optimization_method: Literal["TrustRegionReflection", "Dogbox", "Levenberg-Marquardt"]
+    ftol: float
+    gtol: float
+    xtol: float
+    maximum_number_function_evaluations: int | None
 
 
 class UnsupportedMethodError(GlotaranUserError):

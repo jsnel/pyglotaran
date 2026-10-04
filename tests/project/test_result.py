@@ -10,6 +10,7 @@ import xarray as xr
 from glotaran import __version__
 from glotaran.io import SAVING_OPTIONS_DEFAULT
 from glotaran.io import SAVING_OPTIONS_MINIMAL
+from glotaran.io import load_result
 from glotaran.io import save_dataset
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization.info import OptimizationInfo
@@ -23,6 +24,8 @@ from glotaran.project.scheme import Scheme
 from glotaran.testing.plugin_system import monkeypatch_plugin_registry_data_io
 from glotaran.testing.simulated_data.sequential_spectral_decay import DATASET
 from glotaran.testing.simulated_data.sequential_spectral_decay import RESULT
+from glotaran.testing.simulated_data.sequential_spectral_decay import SCHEME_DICT
+from glotaran.testing.simulated_data.shared_decay import PARAMETERS
 from glotaran.utils.io import chdir_context
 
 if TYPE_CHECKING:
@@ -301,6 +304,41 @@ def test_result_save(tmp_path: Path):
     assert result_file_paths[0] == (tmp_path / "minimal/result.yml").as_posix()
     assert (tmp_path / "minimal/result.yml").is_file()
     assert all(Path(path).exists() for path in result_file_paths)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {},
+        {
+            "optimization_method": "Levenberg-Marquardt",
+            "ftol": 1e-6,
+            "gtol": 1e-7,
+            "xtol": 1e-5,
+            "maximum_number_function_evaluations": 2,
+        },
+    ],
+)
+def test_result_optimizer_settings_round_trip(tmp_path: Path, settings: dict):
+    """Optimizer settings are stored on the result and survive saving, including defaults."""
+    result = Scheme.from_dict(SCHEME_DICT).optimize(
+        PARAMETERS, {"sequential-decay": DATASET}, verbose=False, **settings
+    )
+    expected = {
+        "optimization_method": "TrustRegionReflection",
+        "ftol": 1e-8,
+        "gtol": 1e-8,
+        "xtol": 1e-8,
+        "maximum_number_function_evaluations": None,
+    } | settings
+    assert result.optimizer_settings is not None
+    assert result.optimizer_settings.model_dump() == expected
+
+    result.save(tmp_path)
+    loaded = load_result(tmp_path)
+
+    assert loaded.optimizer_settings is not None
+    assert loaded.optimizer_settings.model_dump() == expected
 
 
 if __name__ == "__main__":
