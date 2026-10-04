@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from glotaran.model.data_model import DataModel
 from glotaran.model.experiment_model import ExperimentModel
+from glotaran.optimization.objective import OptimizationObjective
 from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.simulation import simulate
@@ -214,3 +216,34 @@ def test_multiple_data():
     assert result.success
     assert initial_parameters != optimized_parameters
     assert optimized_parameters.close_or_equal(parameters)
+
+
+def test_failed_optimization_reports_the_optimizer_error(monkeypatch: pytest.MonkeyPatch):
+    """The evaluation after a failed optimization does not replace the optimizer's error."""
+    data_model = DataModel(elements=["decay_independent"])
+    experiment = ExperimentModel(datasets={"decay_independent": data_model})
+    parameters = Parameters.from_dict({"rates": {"decay": [0.8, 0.04]}})
+    data_model.data = simulate(
+        data_model,
+        test_library,
+        parameters,
+        {"global": np.arange(2), "model": np.arange(0, 50, 1)},
+        xr.DataArray(
+            [[1, 10]] * 2, coords=(("global", np.arange(2)), ("clp_label", ["c1", "c2"]))
+        ),
+    )
+    errors = iter([ValueError("optimizer error")])
+
+    def failing_calculate(self: OptimizationObjective):
+        raise next(errors, RuntimeError("error of the evaluation after the optimization"))
+
+    monkeypatch.setattr(OptimizationObjective, "calculate", failing_calculate)
+    optimization = Optimization(
+        models=[experiment], parameters=parameters, library=test_library, raise_exception=False
+    )
+
+    with (
+        pytest.warns(UserWarning, match="Optimization failed"),
+        pytest.raises(ValueError, match="optimizer error"),
+    ):
+        optimization.run()
