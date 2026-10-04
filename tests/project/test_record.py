@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from glotaran.io import load_parameters
+from glotaran.io import save_parameters
 from glotaran.optimization.objective import OptimizationObjective
 from glotaran.project import record as record_module
 from glotaran.project.record import RecordSettings
@@ -28,6 +29,9 @@ from glotaran.testing.simulated_data.shared_decay import PARAMETERS
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import xarray as xr
+
+    from glotaran.parameter import Parameters
     from glotaran.project.result import Result
 
 
@@ -336,3 +340,94 @@ def test_record_source_is_relative_to_the_record(recording: Path):
     record_module.record_settings.source = str(recording / "analysis.py")
 
     assert read_record(fit().record.path)["source"] == "../../analysis.py"
+
+
+def fit_from(parameters: Parameters, dataset: xr.Dataset = DATASET, **kwargs: Any) -> Result:
+    """Fit the sequential decay from ``parameters``."""
+    return Scheme.from_dict(SCHEME_DICT).optimize(
+        parameters,
+        {"sequential-decay": dataset},
+        **{"verbose": False, "maximum_number_function_evaluations": 1} | kwargs,
+    )
+
+
+def test_lineage_follows_optimized_parameters(recording: Path):
+    first = fit()
+    assert first.optimized_parameters.record_uid == first.record.uid
+
+    second = fit_from(first.optimized_parameters)
+    record = read_record(second.record.path)
+    assert record["parent"] == {"id": "001", "uid": first.record.uid}
+    assert record["parent_data_changed"] == []
+
+    # Copies and in-memory edits keep the lineage.
+    parameters = second.optimized_parameters.copy()
+    parameters.get("rates.species_1").value = 0.4
+    assert read_record(fit_from(parameters).record.path)["parent"]["id"] == "002"
+
+
+def test_lineage_starts_anew_from_a_parameter_file(recording: Path):
+    first = fit()
+    save_parameters(first.optimized_parameters, recording / "parameters.csv")
+
+    result = fit_from(load_parameters(recording / "parameters.csv"))
+
+    assert read_record(result.record.path)["parent"] is None
+    assert first.record.uid not in (recording / "parameters.csv").read_text()
+
+
+@pytest.mark.parametrize("reference", ["id", "uid", "path", "record"])
+def test_lineage_with_explicit_parent(recording: Path, reference: str):
+    first = fit()
+    parent = {
+        "id": "001",
+        "uid": first.record.uid,
+        "path": str(first.record.path),
+        "record": first.record,
+    }[reference]
+    parameters = load_parameters(first.record.path / "optimized_parameters.csv")
+
+    result = fit_from(parameters, parent=parent)
+
+    assert read_record(result.record.path)["parent"] == {"id": "001", "uid": first.record.uid}
+
+
+def test_explicit_parent_takes_precedence_and_can_be_in_another_folder(recording: Path):
+    first = fit(output_folder="first_folder")
+    second = fit()
+
+    result = fit_from(second.optimized_parameters, parent=first.record.path)
+
+    assert read_record(result.record.path)["parent"] == {"id": "001", "uid": first.record.uid}
+
+
+def test_missing_explicit_parent_raises_before_the_fit(recording: Path):
+    with pytest.raises(FileNotFoundError, match="no record '017'"):
+        fit(parent="017")
+    assert not (recording / "results").exists()
+
+
+def test_lineage_with_a_parent_record_that_cannot_be_found(recording: Path):
+    first = fit(output_folder="first_folder")
+
+    record = read_record(fit_from(first.optimized_parameters).record.path)
+
+    assert record["parent"] == {"id": None, "uid": first.record.uid}
+    assert record["parent_data_changed"] == "unknown"
+
+
+def test_no_lineage_without_recording(recording: Path):
+    result = fit(record=False)
+
+    assert result.optimized_parameters.record_uid is None
+    assert read_record(fit_from(result.optimized_parameters).record.path)["parent"] is None
+
+
+def test_lineage_marks_replaced_data(recording: Path):
+    """A fit on new data, seeded from a fit on the old data, lists the changed dataset."""
+    first = fit()
+
+    record = read_record(fit_from(first.optimized_parameters, DATASET * 1.5).record.path)
+
+    assert record["parent"]["id"] == "001"
+    assert record["parent_data_changed"] == ["sequential-decay"]

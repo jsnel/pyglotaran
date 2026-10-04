@@ -16,7 +16,9 @@ from glotaran.optimization import Optimization
 from glotaran.optimization import OptimizerSettings
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
+from glotaran.project.record import RecordReference
 from glotaran.project.record import RecordWriter
+from glotaran.project.record import find_record
 from glotaran.project.record import parameter_history_enabled
 from glotaran.project.record import recording_enabled
 from glotaran.project.record import resolve_results_folder
@@ -95,6 +97,7 @@ class Scheme(BaseModel):
         output_folder: StrOrPath | None = None,
         record_parameter_history: bool | None = None,
         name: str | None = None,
+        parent: str | Path | RecordReference | None = None,
     ) -> Result:
         """Fit the scheme to the datasets.
 
@@ -137,11 +140,21 @@ class Scheme(BaseModel):
             Whether to record the parameter values of every function evaluation.
         name : str | None
             A label for the record.
+        parent : str | Path | RecordReference | None
+            The record this fit continues from: a record id (``"017"``) or uid in the base
+            folder of the record, a record path or ``Result.record``. By default the record of
+            the fit that produced ``parameters``, if they are the optimized parameters of a
+            recorded fit in this session (or a copy or edit of them).
 
         Returns
         -------
         Result
             The result of the fit. ``Result.record`` refers to its record.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the ``parent`` record does not exist.
         """
         # Prevent circular import error
         from glotaran.project.result import Result  # noqa: PLC0415
@@ -150,6 +163,11 @@ class Scheme(BaseModel):
             resolve_results_folder(output_folder)
             if recording_enabled(record=record, output_folder=output_folder) and not dry_run
             else None
+        )
+        parent_folder = (
+            None
+            if results_folder is None or parent is None
+            else find_record(parent, results_folder)
         )
         # The result gets its own copies of the scheme, parameters and data, so later edits
         # of the inputs or later fits do not change it.
@@ -188,6 +206,7 @@ class Scheme(BaseModel):
                 parameter_history=parameter_history_enabled(
                     record_parameter_history=record_parameter_history
                 ),
+                parent_folder=parent_folder,
             )
         )
         try:
@@ -211,6 +230,7 @@ class Scheme(BaseModel):
             raise
         if writer is not None:
             result.record = writer.finish(optimization, result=result)
+            result.optimized_parameters.record_uid = result.record.uid
             if verbose:
                 print(f"Recorded the fit in '{result.record.path}'.")  # noqa: T201
         return result

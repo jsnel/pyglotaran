@@ -30,6 +30,7 @@ from ruamel.yaml import YAML
 from glotaran.builtin.io.yml.utils import write_dict
 from glotaran.io import save_parameters
 from glotaran.io import save_scheme
+from glotaran.project.data_summary import compare_data_summaries
 from glotaran.project.data_summary import summarize_data
 
 if TYPE_CHECKING:
@@ -310,6 +311,85 @@ def read_record(folder: StrOrPath) -> dict[str, Any]:
     return record
 
 
+def find_record(reference: str | Path | RecordReference, results_folder: Path) -> Path:
+    """Find the folder of a record, or of an export.
+
+    Parameters
+    ----------
+    reference : str | Path | RecordReference
+        A record id (``"017"``), a uid, the path of a record or export folder, or
+        ``Result.record``.
+    results_folder : Path
+        The base folder in which an id or a uid is looked up.
+
+    Returns
+    -------
+    Path
+        The absolute path of the folder.
+
+    Raises
+    ------
+    FileNotFoundError
+        If there is no such record.
+    """
+    if isinstance(reference, RecordReference):
+        folder: Path | None = reference.path
+    elif isinstance(reference, str) and reference.isascii() and reference.isdecimal():
+        folder = results_folder / format_record_id(int(reference))
+    elif Path(reference).is_dir():
+        folder = Path(reference)
+    else:
+        folder = find_record_by_uid(str(reference), results_folder)
+    if folder is None or not any((folder / name).is_file() for name in (RECORD_FILE, EXPORT_FILE)):
+        msg = f"There is no record {str(reference)!r} in '{results_folder}'."
+        raise FileNotFoundError(msg)
+    return folder.resolve()
+
+
+def find_record_by_uid(uid: str, results_folder: Path) -> Path | None:
+    """Find the newest record with a uid in a base folder.
+
+    Parameters
+    ----------
+    uid : str
+        The uid of the fit attempt.
+    results_folder : Path
+        The base folder.
+
+    Returns
+    -------
+    Path | None
+        The record folder, ``None`` if there is none. Damaged records are skipped.
+    """
+    for folder in reversed(record_folders(results_folder)):
+        record = try_read_record(folder)
+        if record is not None and record.get("uid") == uid:
+            return folder
+    return None
+
+
+def try_read_record(folder: Path) -> dict[str, Any] | None:
+    """Read the metadata of a record folder, skipping a damaged record with a warning.
+
+    Parameters
+    ----------
+    folder : Path
+        A numbered folder in a base folder of records.
+
+    Returns
+    -------
+    dict[str, Any] | None
+        The metadata, ``None`` if the folder has no readable ``record.yml``.
+    """
+    if not (folder / RECORD_FILE).is_file():
+        return None
+    try:
+        return read_record(folder)
+    except Exception as error:  # noqa: BLE001
+        warn(f"Skipping the damaged record '{folder}': {error}", stacklevel=2)
+        return None
+
+
 def summarize_result(result: Result) -> dict[str, Any]:
     """Summarize the statistics of a successful fit for its record.
 
@@ -368,6 +448,7 @@ class RecordWriter:
         optimizer_settings: OptimizerSettings,
         name: str | None,
         parameter_history: bool,
+        parent_folder: Path | None,
     ) -> RecordWriter | None:
         """Create the record folder and write what is known before the fit.
 
@@ -388,6 +469,9 @@ class RecordWriter:
             An optional label of the fit.
         parameter_history : bool
             Whether the parameter history is recorded.
+        parent_folder : Path | None
+            The record of a parent given explicitly. Without it, the parent is the record of
+            the uid that ``initial_parameters`` carry, if any.
 
         Returns
         -------
@@ -406,6 +490,10 @@ class RecordWriter:
                 stacklevel=3,
             )
         try:
+            data = {label: summarize_data(dataset) for label, dataset in datasets}
+            parent, parent_data_changed = _lineage(
+                parent_folder, initial_parameters.record_uid, results_folder, data
+            )
             folder = allocate_record_folder(results_folder)
             record = {
                 "schema_version": RECORD_SCHEMA_VERSION,
@@ -421,11 +509,11 @@ class RecordWriter:
                     if scheme.source_path is None
                     else _relative_path(scheme.source_path, folder)
                 ),
-                "parent": None,
-                "parent_data_changed": [],
+                "parent": parent,
+                "parent_data_changed": parent_data_changed,
                 "optimizer": optimizer_settings.model_dump(),
                 "summary": {},
-                "data": {label: summarize_data(dataset) for label, dataset in datasets},
+                "data": data,
                 "environment": environment_versions(),
             }
             save_scheme(scheme, folder / "scheme.yml", update_source_path=False)
@@ -509,6 +597,45 @@ class RecordWriter:
                 stacklevel=3,
             )
         return self.reference
+
+
+def _lineage(
+    parent_folder: Path | None,
+    parent_uid: str | None,
+    results_folder: Path,
+    data: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[str] | str]:
+    """Determine the parent of a fit and the datasets whose data changed since the parent.
+
+    Parameters
+    ----------
+    parent_folder : Path | None
+        The record of the parent given explicitly, which takes precedence.
+    parent_uid : str | None
+        The uid carried by the initial parameters, looked up in ``results_folder``.
+    results_folder : Path
+        The base folder of the fit.
+    data : dict[str, dict[str, Any]]
+        The data summaries of the fit.
+
+    Returns
+    -------
+    tuple[dict[str, Any] | None, list[str] | str]
+        The ``id`` and ``uid`` of the parent (``None`` without a parent), and the labels of the
+        datasets whose data summary differs from the parent's, ``"unknown"`` if the parent's
+        record cannot be found.
+    """
+    if parent_folder is None and parent_uid is not None:
+        parent_folder = find_record_by_uid(parent_uid, results_folder)
+        if parent_folder is None:
+            return {"id": None, "uid": parent_uid}, "unknown"
+    if parent_folder is None:
+        return None, []
+    parent = read_record(parent_folder)
+    data_changed = (
+        list(compare_data_summaries(parent["data"], data)) if "data" in parent else "unknown"
+    )
+    return {"id": parent.get("id"), "uid": parent.get("uid")}, data_changed
 
 
 def _environment_flag(name: str) -> bool | None:

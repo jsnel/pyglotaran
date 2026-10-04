@@ -52,6 +52,11 @@ class Parameters:
         self._parameters: dict[str, Parameter] = parameters
         self._evaluator = asteval.Interpreter(symtable=asteval.make_symbol_table(parameters=self))
         self.source_path = "parameters.csv"
+        self.record_uid: str | None = None
+        """Unique id of the recorded fit that produced these parameters, for lineage.
+
+        Copies and in-memory edits keep it; it is not written to parameter files.
+        """
         self.update_parameter_expression()
 
     @classmethod
@@ -266,9 +271,11 @@ class Parameters:
 
         .. # noqa: D414
         """
-        return Parameters(
+        copy = Parameters(
             {label: parameter.model_copy() for label, parameter in self._parameters.items()}
         )
+        copy.record_uid = self.record_uid
+        return copy
 
     def all(self) -> Generator[Parameter]:
         """Iterate over all parameters.
