@@ -1,8 +1,12 @@
+from copy import deepcopy
+
 import numpy as np
 import pytest
 import xarray as xr
 
+from glotaran.optimization.optimization_group import OptimizationGroup
 from glotaran.optimization.optimize import optimize
+from glotaran.optimization.test.models import DecayModel
 from glotaran.optimization.test.models import SimpleTestModel
 from glotaran.optimization.test.suites import FullModel
 from glotaran.optimization.test.suites import MultichannelMulticomponentDecay
@@ -170,6 +174,151 @@ def test_optimization_full_model(index_dependent):
     print(clp)  # T201
     assert clp.shape == (4, 4)
     assert all(np.isclose(1.0, c) for c in np.diagonal(clp))
+
+
+def test_link_clp_full_model_requires_consistent_single_amplitude_setting():
+    model = DecayModel(
+        **{
+            "dataset_groups": {"default": {"link_clp": True}},
+            "megacomplex": {
+                "m1": {"type": "simple-kinetic-test-mc", "is_index_dependent": False},
+                "m2": {"type": "simple-spectral-test-mc"},
+            },
+            "dataset": {
+                "dataset1": {
+                    "megacomplex": ["m1"],
+                    "global_megacomplex": ["m2"],
+                    "kinetic": ["1"],
+                    "single_amplitude_model": True,
+                },
+                "dataset2": {
+                    "megacomplex": ["m1"],
+                    "global_megacomplex": ["m2"],
+                    "kinetic": ["1"],
+                },
+            },
+        }
+    )
+    data = xr.DataArray(
+        np.ones((2, 2)), coords=[("model", [1, 2]), ("global", [1, 2])]
+    ).to_dataset(name="data")
+    scheme = Scheme(
+        model,
+        Parameters.from_list([0.1]),
+        {"dataset1": data, "dataset2": data.copy()},
+    )
+
+    with pytest.raises(ValueError, match="single_amplitude_model.*consistently"):
+        optimize(scheme)
+
+
+def test_link_clp_full_model_applies_dataset_scale():
+    model = deepcopy(FullModel.model)
+    model.dataset_groups["default"].link_clp = True
+    model.dataset["dataset1"].single_amplitude_model = True
+    model.dataset["dataset1"].scale = "scale.1"
+
+    parameter_dicts = FullModel.parameters.to_parameter_dict_list()
+    parameter_dicts.append({"label": "scale.1", "value": 1.0})
+    parameters = Parameters.from_parameter_dict_list(parameter_dicts)
+    coordinates = FullModel.coordinates
+    data = xr.DataArray(
+        np.ones((coordinates["model"].size, coordinates["global"].size)),
+        coords=[("model", coordinates["model"]), ("global", coordinates["global"])],
+    ).to_dataset(name="data")
+    scheme = Scheme(
+        model=model,
+        parameters=parameters,
+        data={"dataset1": data},
+        add_svd=False,
+    )
+    group = OptimizationGroup(scheme, model.get_dataset_groups()["default"])
+
+    group.calculate(parameters)
+    unscaled_matrix = group._matrix_provider.get_aligned_full_matrix("dataset1").copy()
+    parameters.get("scale.1").value = 2.0
+    group.calculate(parameters)
+    scaled_matrix = group._matrix_provider.get_aligned_full_matrix("dataset1")
+
+    assert np.allclose(scaled_matrix, 2.0 * unscaled_matrix)
+
+
+@pytest.mark.parametrize("single_amplitude_model", [False, True])
+@pytest.mark.parametrize(
+    "residual_function",
+    ["variable_projection", "non_negative_least_squares"],
+)
+def test_link_clp_full_model(single_amplitude_model, residual_function):
+    model_dict = {
+        "dataset_groups": {
+            "default": {
+                "link_clp": True,
+                "residual_function": residual_function,
+            }
+        },
+        "megacomplex": {
+            "m1": {"type": "simple-kinetic-test-mc", "is_index_dependent": False},
+            "m2": {
+                "type": "shaped-spectral-test-mc",
+                "location": ["loc.1", "loc.2", "loc.3", "loc.4"],
+                "delta": ["del.1", "del.2", "del.3", "del.4"],
+                "amplitude": ["amp.1", "amp.2", "amp.3", "amp.4"],
+            },
+        },
+        "dataset": {},
+    }
+    dataset_labels = (
+        ["dataset1", "dataset2"] if single_amplitude_model else ["dataset1", "dataset3"]
+    )
+    for label in dataset_labels:
+        model_dict["dataset"][label] = {
+            "megacomplex": ["m1"],
+            "global_megacomplex": ["m2"],
+            "kinetic": ["k.1", "k.2", "k.3", "k.4"],
+            "single_amplitude_model": single_amplitude_model,
+        }
+
+    model = DecayModel(**model_dict)
+    data = {
+        label: simulate(model, label, FullModel.parameters, FullModel.coordinates)
+        for label in dataset_labels
+    }
+    scheme = Scheme(
+        model=model,
+        parameters=FullModel.parameters,
+        data=data,
+        maximum_number_function_evaluations=10,
+    )
+
+    result = optimize(scheme, raise_exception=True)
+
+    assert result.success
+    clp1 = result.data[dataset_labels[0]].clp
+    clp2 = result.data[dataset_labels[1]].clp
+    assert clp1.dims == ("global_clp_label", "clp_label")
+    assert clp2.dims == ("global_clp_label", "clp_label")
+    expected_global_labels = ["s1", "s2", "s3", "s4"]
+    if single_amplitude_model:
+        assert clp1.coords["global_clp_label"].values.tolist() == expected_global_labels
+    else:
+        assert clp1.coords["global_clp_label"].values.tolist() == expected_global_labels
+        assert clp2.coords["global_clp_label"].values.tolist() == ["s2", "s3", "s4", "s5"]
+        assert clp2.coords["clp_label"].values.tolist() == ["s2", "s3", "s4", "s5"]
+    if single_amplitude_model:
+        assert np.allclose(clp1.values, clp2.values)
+        assert np.allclose(clp1.values, np.diag(np.diag(clp1.values)))
+    else:
+        for global_label in ["s2", "s3", "s4"]:
+            for clp_label in ["s2", "s3", "s4"]:
+                assert clp1.sel(
+                    global_clp_label=global_label,
+                    clp_label=clp_label,
+                ).item() == pytest.approx(
+                    clp2.sel(
+                        global_clp_label=global_label,
+                        clp_label=clp_label,
+                    ).item()
+                )
 
 
 @pytest.mark.parametrize("model_weight", [True, False])

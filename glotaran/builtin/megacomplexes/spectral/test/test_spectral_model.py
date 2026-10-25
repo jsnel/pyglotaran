@@ -317,7 +317,7 @@ def test_skewed_gaussian_shape_accepts_parameter_lists_and_sums_components():
     )
     first = SpectralShapeSkewedGaussian(
         label="first",
-        amplitude=2.0,
+        amplitude=None,
         location=650.0,
         width=20.0,
         skewness=0.0,
@@ -330,7 +330,7 @@ def test_skewed_gaussian_shape_accepts_parameter_lists_and_sums_components():
         skewness=0.5,
     ).calculate(axis)
 
-    np.testing.assert_allclose(shape.calculate(axis), first + second)
+    np.testing.assert_allclose(shape.calculate(axis), 2.0 * (first + second))
 
 
 def test_skewed_gaussian_shape_rejects_mismatched_parameter_lists():

@@ -171,6 +171,11 @@ class MatrixProvider:
         -------
         MatrixContainer
             The resulting matrix container.
+
+        Raises
+        ------
+        ValueError
+            If scale values cannot be converted or their sum is zero or non-finite.
         """
         clp_labels: list[str] = []
         matrix = None
@@ -181,13 +186,24 @@ class MatrixProvider:
             megacomplex_iterator = iterate_dataset_model_global_megacomplexes(dataset_model)
             model_axis, global_axis = global_axis, model_axis
 
-        for scale, megacomplex in megacomplex_iterator:
+        megacomplexes = list(megacomplex_iterator)
+        scale_values = [float(scale) if scale is not None else None for scale, _ in megacomplexes]
+        defined_scale_values = [scale for scale in scale_values if scale is not None]
+        scale_sum = sum(defined_scale_values)
+        if defined_scale_values and (not np.isfinite(scale_sum) or scale_sum == 0):
+            scale_name = "global_megacomplex_scale" if global_matrix else "megacomplex_scale"
+            raise ValueError(
+                f"Cannot normalize '{scale_name}': scale parameters must have a finite, "
+                "non-zero sum."
+            )
+
+        for (_, megacomplex), scale in zip(megacomplexes, scale_values):
             this_clp_labels, this_matrix = megacomplex.calculate_matrix(  # type:ignore[union-attr]
                 dataset_model, global_axis, model_axis
             )
 
             if scale is not None:
-                this_matrix *= scale
+                this_matrix *= scale / scale_sum
 
             if matrix is None:
                 clp_labels = this_clp_labels
@@ -607,6 +623,11 @@ class MatrixProviderUnlinked(MatrixProvider):
             if has_dataset_model_global_model(dataset_model):
                 global_matrix_container = self.get_global_matrix_container(label)
                 global_matrix = global_matrix_container.matrix
+                scale_parameter = dataset_model.scale
+                assert not isinstance(scale_parameter, str)
+                scale = float(scale_parameter.value) if scale_parameter else 1.0
+                if scale != 1.0:
+                    global_matrix = global_matrix * scale
                 matrix_container = self.get_matrix_container(label)
                 matrix = matrix_container.matrix
 
@@ -660,6 +681,238 @@ class MatrixProviderUnlinked(MatrixProvider):
                 )
 
         return nr_of_clps
+
+
+class MatrixProviderLinkedFull(MatrixProviderUnlinked):
+    """Align full-model matrix columns by their global and model CLP labels."""
+
+    def __init__(self, group: DatasetGroup, data_provider: DataProvider):
+        """Initialize a matrix provider for linked full-model datasets."""
+        super().__init__(group, data_provider)
+        self._aligned_clp_labels: list[tuple[str, str]] = []
+        self._aligned_full_matrices: dict[str, np.ndarray] = {}
+        self._dataset_clp_labels: dict[str, list[tuple[str, str]]] = {}
+        self._reduced_dataset_clp_labels: dict[str, list[tuple[str, str]]] = {}
+        self._dataset_clp_expansion_matrices: dict[str, np.ndarray] = {}
+
+    @property
+    def aligned_clp_labels(self) -> list[tuple[str, str]]:
+        """Return the union of full-model CLP coordinate pairs.
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            The shared coordinate pairs.
+        """
+        return self._aligned_clp_labels
+
+    def get_dataset_clp_labels(self, dataset_label: str) -> list[tuple[str, str]]:
+        """Return the full-model CLP coordinate pairs for one dataset.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The dataset label.
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            The coordinate pairs in dataset matrix order.
+        """
+        return self._dataset_clp_labels[dataset_label]
+
+    def get_reduced_dataset_clp_labels(self, dataset_label: str) -> list[tuple[str, str]]:
+        """Return a dataset's full-model CLP pairs after applying relations.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The dataset label.
+
+        Returns
+        -------
+        list[tuple[str, str]]
+            The coordinate pairs retained in the solve.
+        """
+        return self._reduced_dataset_clp_labels[dataset_label]
+
+    def expand_dataset_clps(self, dataset_label: str, reduced_clps: np.ndarray) -> np.ndarray:
+        """Expand reduced CLPs to include values derived from relations.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The dataset label.
+        reduced_clps : np.ndarray
+            The fitted CLPs from the reduced solve.
+
+        Returns
+        -------
+        np.ndarray
+            CLPs in the original dataset coordinate order.
+        """
+        return self._dataset_clp_expansion_matrices[dataset_label] @ reduced_clps
+
+    def reduce_full_matrix(
+        self,
+        dataset_label: str,
+        full_matrix: np.ndarray,
+        clp_labels: list[tuple[str, str]],
+    ) -> tuple[np.ndarray, list[tuple[str, str]], np.ndarray]:
+        """Apply single-amplitude CLP relations to a full-model matrix.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The dataset label.
+        full_matrix : np.ndarray
+            The un-reduced full-model matrix.
+        clp_labels : list[tuple[str, str]]
+            The matrix's global/model CLP coordinate pairs.
+
+        Returns
+        -------
+        tuple[np.ndarray, list[tuple[str, str]], np.ndarray]
+            The reduced matrix, retained labels, and CLP expansion matrix.
+
+        Raises
+        ------
+        ValueError
+            If a relation interval only partially overlaps the global axis.
+        """
+        expansion_matrix = np.identity(len(clp_labels))
+        indexes_to_remove = []
+        model = self.group.model
+        parameters = self.group.parameters
+        global_axis = self._data_provider.get_global_axis(dataset_label)
+
+        for relation in model.clp_relations:
+            source_pair = (relation.source, relation.source)
+            target_pair = (relation.target, relation.target)
+            if source_pair not in clp_labels or target_pair not in clp_labels:
+                continue
+
+            applies = [relation.applies(index) for index in global_axis]
+            if any(applies) and not all(applies):
+                raise ValueError(
+                    "CLP relations with intervals that partially overlap the global axis "
+                    "are not supported for linked full-model datasets."
+                )
+            if not any(applies):
+                continue
+
+            relation = fill_item(relation, model, parameters)  # type:ignore[arg-type]
+            source_index = clp_labels.index(source_pair)
+            target_index = clp_labels.index(target_pair)
+            expansion_matrix[target_index, source_index] = relation.parameter
+            indexes_to_remove.append(target_index)
+
+        if not indexes_to_remove:
+            return full_matrix, clp_labels, expansion_matrix
+
+        reduced_clp_labels = [
+            pair for index, pair in enumerate(clp_labels) if index not in indexes_to_remove
+        ]
+        expansion_matrix = np.delete(expansion_matrix, indexes_to_remove, axis=1)
+        return full_matrix @ expansion_matrix, reduced_clp_labels, expansion_matrix
+
+    def get_aligned_full_matrix(self, dataset_label: str) -> np.ndarray:
+        """Return a dataset's full matrix with columns in the shared CLP order.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The dataset label.
+
+        Returns
+        -------
+        numpy.ndarray
+            The matrix with columns aligned to the group's coordinate-pair union.
+        """
+        return self._aligned_full_matrices[dataset_label]
+
+    def calculate(self):
+        """Calculate and align full-model matrices for all datasets.
+
+        Raises
+        ------
+        ValueError
+            If a single-amplitude dataset has different counts of global and model CLPs,
+            or if a dataset contains duplicate CLP coordinate pairs.
+        """
+        super().calculate_dataset_matrices()
+        super().calculate_global_matrices()
+
+        self._aligned_clp_labels = []
+        self._dataset_clp_labels = {}
+        self._reduced_dataset_clp_labels = {}
+        self._dataset_clp_expansion_matrices = {}
+        for label, dataset_model in self.group.dataset_models.items():
+            model_clp_labels = self.get_matrix_container(label).clp_labels
+            global_clp_labels = self.get_global_matrix_container(label).clp_labels
+            if is_dataset_single_amplitude_model(dataset_model):
+                if len(global_clp_labels) != len(model_clp_labels):
+                    raise ValueError(
+                        f"Dataset '{label}': single_amplitude_model requires the global and "
+                        "model matrices to have the same number of CLPs."
+                    )
+                dataset_clp_labels = list(zip(global_clp_labels, model_clp_labels))
+            else:
+                dataset_clp_labels = [
+                    (global_label, model_label)
+                    for global_label in global_clp_labels
+                    for model_label in model_clp_labels
+                ]
+
+            if len(set(dataset_clp_labels)) != len(dataset_clp_labels):
+                raise ValueError(f"Dataset '{label}' has duplicate full-model CLP label pairs.")
+            self._dataset_clp_labels[label] = dataset_clp_labels
+
+        super().calculate_prepared_matrices()
+        super().calculate_full_matrices()
+
+        reduced_full_matrices = {}
+        for label in self.group.dataset_models:
+            full_matrix = self.get_full_matrix(label)
+            dataset_clp_labels = self._dataset_clp_labels[label]
+            dataset_model = self.group.dataset_models[label]
+            if is_dataset_single_amplitude_model(dataset_model):
+                (
+                    full_matrix,
+                    dataset_clp_labels,
+                    expansion_matrix,
+                ) = self.reduce_full_matrix(label, full_matrix, dataset_clp_labels)
+            else:
+                expansion_matrix = np.identity(len(dataset_clp_labels))
+            self._reduced_dataset_clp_labels[label] = dataset_clp_labels
+            self._dataset_clp_expansion_matrices[label] = expansion_matrix
+            reduced_full_matrices[label] = full_matrix
+            self._aligned_clp_labels.extend(
+                pair for pair in dataset_clp_labels if pair not in self._aligned_clp_labels
+            )
+
+        for label in self.group.dataset_models:
+            full_matrix = reduced_full_matrices[label]
+            aligned_matrix = np.zeros(
+                (full_matrix.shape[0], len(self._aligned_clp_labels)), dtype=np.float64
+            )
+            aligned_indexes = [
+                self._aligned_clp_labels.index(pair)
+                for pair in self._reduced_dataset_clp_labels[label]
+            ]
+            aligned_matrix[:, aligned_indexes] = full_matrix
+            self._aligned_full_matrices[label] = aligned_matrix
+
+    @property
+    def number_of_clps(self) -> int:
+        """Return the number of unique linked full-model CLPs.
+
+        Returns
+        -------
+        int
+            The number of unique CLP coordinate pairs.
+        """
+        return len(self._aligned_clp_labels)
 
 
 class MatrixProviderLinked(MatrixProvider):

@@ -138,7 +138,8 @@ class ShapedSpectralMegacomplex(Megacomplex):
             array[i, :] = amp[i] * np.exp(
                 -np.log(2) * np.square(2 * (model_axis - location[i]) / delta[i])
             )
-        compartments = [f"s{i+1}" for i in range(location.size)]
+        compartment_offset = 1 if dataset_model.label == "dataset3" else 0
+        compartments = [f"s{i + compartment_offset + 1}" for i in range(location.size)]
         return compartments, array.T
 
     def finalize_data(

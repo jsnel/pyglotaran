@@ -164,7 +164,11 @@ class SpectralShapeSkewedGaussianSum(SpectralShape):
     skewness: list[ParameterType]
 
     def calculate(self, axis: np.ndarray) -> np.ndarray:
-        """Calculate and sum the skewed Gaussian components for ``axis``."""
+        """Calculate components with a shared multiplier and relative amplitudes.
+
+        The first amplitude multiplies the full sum; later amplitudes weight their
+        components relative to the first component.
+        """
         component_count = len(self.location)
         amplitudes = self.amplitude or [None] * component_count
         if len({component_count, len(self.width), len(self.skewness), len(amplitudes)}) != 1:
@@ -173,15 +177,20 @@ class SpectralShapeSkewedGaussianSum(SpectralShape):
                 "skewness must have the same number of components."
             )
 
-        return sum(
+        amplitude_scale = amplitudes[0] if self.amplitude else 1.0
+        relative_amplitudes = [None, *amplitudes[1:]] if self.amplitude else amplitudes
+        component_sum = sum(
             (
-                _calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
-                for amplitude, location, width, skewness in zip(
-                    amplitudes, self.location, self.width, self.skewness, strict=True
+                _calculate_skewed_gaussian_component(
+                    axis, relative_amplitude, location, width, skewness
+                )
+                for relative_amplitude, location, width, skewness in zip(
+                    relative_amplitudes, self.location, self.width, self.skewness, strict=True
                 )
             ),
             start=np.zeros(axis.shape, dtype=float),
         )
+        return amplitude_scale * component_sum
 
 
 @item

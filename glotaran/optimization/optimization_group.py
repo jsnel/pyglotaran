@@ -11,13 +11,16 @@ from glotaran.io.prepare_dataset import add_svd_to_dataset
 from glotaran.model import DatasetGroup
 from glotaran.model.dataset_model import finalize_dataset_model
 from glotaran.model.dataset_model import has_dataset_model_global_model
+from glotaran.model.dataset_model import is_dataset_single_amplitude_model
 from glotaran.optimization.data_provider import DataProvider
 from glotaran.optimization.data_provider import DataProviderLinked
 from glotaran.optimization.estimation_provider import EstimationProvider
 from glotaran.optimization.estimation_provider import EstimationProviderLinked
+from glotaran.optimization.estimation_provider import EstimationProviderLinkedFull
 from glotaran.optimization.estimation_provider import EstimationProviderUnlinked
 from glotaran.optimization.matrix_provider import MatrixProvider
 from glotaran.optimization.matrix_provider import MatrixProviderLinked
+from glotaran.optimization.matrix_provider import MatrixProviderLinkedFull
 from glotaran.optimization.matrix_provider import MatrixProviderUnlinked
 from glotaran.parameter import Parameters
 from glotaran.project import Scheme
@@ -51,19 +54,47 @@ class OptimizationGroup:
         if link_clp is None:
             link_clp = dataset_group.is_linkable(scheme.parameters, scheme.data)
 
-        if link_clp:
+        global_model_datasets = [
+            label
+            for label, dataset_model in dataset_group.dataset_models.items()
+            if has_dataset_model_global_model(dataset_model)
+        ]
+        data_provider: DataProvider
+        matrix_provider: MatrixProvider
+        estimation_provider: EstimationProvider
+        if link_clp and global_model_datasets:
+            if len(global_model_datasets) != len(dataset_group.dataset_models):
+                raise ValueError(
+                    "CLP linking (`link_clp: true`) requires every dataset in a group to use "
+                    "the same model type; mixing global/spectrotemporal and standard models "
+                    "is not supported."
+                )
+            single_amplitude_modes = {
+                is_dataset_single_amplitude_model(dataset_model)
+                for dataset_model in dataset_group.dataset_models.values()
+            }
+            if len(single_amplitude_modes) > 1:
+                raise ValueError(
+                    "All datasets in a linked spectrotemporal group must set "
+                    "`single_amplitude_model` consistently."
+                )
+            data_provider = DataProvider(scheme, dataset_group)
+            matrix_provider = MatrixProviderLinkedFull(dataset_group, data_provider)
+            estimation_provider = EstimationProviderLinkedFull(
+                dataset_group, data_provider, matrix_provider
+            )
+        elif link_clp:
             data_provider = DataProviderLinked(scheme, dataset_group)
             matrix_provider = MatrixProviderLinked(dataset_group, data_provider)
             estimation_provider = EstimationProviderLinked(
                 dataset_group, data_provider, matrix_provider
             )
         else:
-            data_provider = DataProvider(scheme, dataset_group)  # type:ignore[assignment]
-            matrix_provider = MatrixProviderUnlinked(  # type:ignore[assignment]
-                self._dataset_group, data_provider
-            )
-            estimation_provider = EstimationProviderUnlinked(  # type:ignore[assignment]
-                dataset_group, data_provider, matrix_provider  # type:ignore[arg-type]
+            data_provider = DataProvider(scheme, dataset_group)
+            unlinked_matrix_provider = MatrixProviderUnlinked(self._dataset_group, data_provider)
+            matrix_provider = unlinked_matrix_provider
+            estimation_provider = EstimationProviderUnlinked(
+                dataset_group, data_provider, unlinked_matrix_provider
             )
 
         self._data_provider: DataProvider = data_provider

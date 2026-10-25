@@ -141,7 +141,10 @@ def finalize_data(
     )
     retrieve_irf(dataset_model, dataset, global_dimension)
 
-    if not is_full_model:
+    if is_full_model and as_global:
+        for megacomplex in decay_megacomplexes:
+            retrieve_a_matrix(megacomplex, dataset_model, dataset)
+    elif not is_full_model:
         for megacomplex in decay_megacomplexes:
             retrieve_decay_associated_data(
                 megacomplex,
@@ -150,6 +153,37 @@ def finalize_data(
                 global_dimension,
                 name,
             )
+
+
+def retrieve_a_matrix(
+    megacomplex: Megacomplex,
+    dataset_model: DatasetModel,
+    dataset: xr.Dataset,
+):
+    """Add an A-matrix variable for a global decay megacomplex in a full model."""
+    species = megacomplex.get_compartments(dataset_model)
+    initial_concentration = megacomplex.get_initial_concentration(dataset_model)
+    k_matrix = megacomplex.get_k_matrix()
+    rates = k_matrix.rates(species, initial_concentration)
+    lifetimes = 1 / rates
+
+    component_name = f"component_{megacomplex.label}"
+    species_name = f"species_{megacomplex.label}"
+    component_coords = {
+        component_name: np.arange(1, rates.size + 1),
+        f"rate_{megacomplex.label}": (component_name, rates),
+        f"lifetime_{megacomplex.label}": (component_name, lifetimes),
+    }
+    component_coords[species_name] = species
+    component_coords[f"initial_concentration_{megacomplex.label}"] = (
+        species_name,
+        megacomplex.get_initial_concentration(dataset_model, normalized=False),
+    )
+    dataset[f"a_matrix_{megacomplex.label}"] = xr.DataArray(
+        megacomplex.get_a_matrix(dataset_model),
+        coords=component_coords,
+        dims=(component_name, species_name),
+    )
 
 
 def decay_matrix_implementation_index_independent(

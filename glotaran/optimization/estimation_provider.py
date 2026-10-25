@@ -17,6 +17,7 @@ from glotaran.model.item import fill_item
 from glotaran.optimization.data_provider import DataProvider
 from glotaran.optimization.data_provider import DataProviderLinked
 from glotaran.optimization.matrix_provider import MatrixProviderLinked
+from glotaran.optimization.matrix_provider import MatrixProviderLinkedFull
 from glotaran.optimization.matrix_provider import MatrixProviderUnlinked
 from glotaran.optimization.nnls import residual_nnls
 from glotaran.optimization.variable_projection import residual_variable_projection
@@ -483,6 +484,96 @@ class EstimationProviderUnlinked(EstimationProvider):
         )
         self._clp_penalty += new_penalties
         self._clp_penalty_areas += new_areas
+
+
+class EstimationProviderLinkedFull(EstimationProvider):
+    """Estimate one shared set of CLPs for linked full-model datasets."""
+
+    def __init__(
+        self,
+        dataset_group: DatasetGroup,
+        data_provider: DataProvider,
+        matrix_provider: MatrixProviderLinkedFull,
+    ):
+        """Initialize an estimation provider for linked full-model datasets."""
+        super().__init__(dataset_group)
+        self._data_provider = data_provider
+        self._matrix_provider = matrix_provider
+        self._clps: dict[str, ArrayLike] = {}
+        self._residuals: dict[str, ArrayLike] = {}
+
+    def estimate(self):
+        """Estimate linked CLPs and split residuals back by dataset."""
+        labels = list(self.group.dataset_models)
+        data = [self._data_provider.get_flattened_data(label) for label in labels]
+        matrices = [self._matrix_provider.get_aligned_full_matrix(label) for label in labels]
+        clps, residuals = self.calculate_residual(np.vstack(matrices), np.concatenate(data))
+
+        offset = 0
+        for label, dataset_data in zip(labels, data):
+            dataset_clp_indexes = [
+                self._matrix_provider.aligned_clp_labels.index(pair)
+                for pair in self._matrix_provider.get_reduced_dataset_clp_labels(label)
+            ]
+            self._clps[label] = self._matrix_provider.expand_dataset_clps(
+                label, clps[dataset_clp_indexes]
+            )
+            self._residuals[label] = residuals[offset : offset + dataset_data.size]
+            offset += dataset_data.size
+
+    def get_full_penalty(self) -> ArrayLike:
+        """Return the concatenated residuals and any additional penalties.
+
+        Returns
+        -------
+        ArrayLike
+            The residual vector followed by additional penalties.
+        """
+        full_penalty = np.concatenate(
+            [self._residuals[label] for label in self.group.dataset_models]
+        )
+        if self._clp_penalty:
+            full_penalty = np.concatenate([full_penalty, self._clp_penalty])
+        return full_penalty
+
+    def get_result(self) -> tuple[dict[str, xr.DataArray], dict[str, xr.DataArray]]:
+        """Return per-dataset CLP arrays and residuals.
+
+        Returns
+        -------
+        tuple[dict[str, xarray.DataArray], dict[str, xarray.DataArray]]
+            The CLPs and residuals keyed by dataset label.
+        """
+        clps: dict[str, xr.DataArray] = {}
+        residuals: dict[str, xr.DataArray] = {}
+        for label, dataset_model in self.group.dataset_models.items():
+            model_clp_labels = self._matrix_provider.get_matrix_container(label).clp_labels
+            global_clp_labels = self._matrix_provider.get_global_matrix_container(label).clp_labels
+            clp_values = self._clps[label]
+            if is_dataset_single_amplitude_model(dataset_model):
+                clp_values = np.diag(clp_values)
+            else:
+                clp_values = clp_values.reshape((len(global_clp_labels), len(model_clp_labels)))
+
+            clps[label] = xr.DataArray(
+                clp_values,
+                coords={
+                    "global_clp_label": global_clp_labels,
+                    "clp_label": model_clp_labels,
+                },
+                dims=["global_clp_label", "clp_label"],
+            )
+
+            model_dimension = self._data_provider.get_model_dimension(label)
+            model_axis = self._data_provider.get_model_axis(label)
+            global_dimension = self._data_provider.get_global_dimension(label)
+            global_axis = self._data_provider.get_global_axis(label)
+            residuals[label] = xr.DataArray(
+                np.asarray(self._residuals[label]).reshape(global_axis.size, model_axis.size).T,
+                coords={global_dimension: global_axis, model_dimension: model_axis},
+                dims=[model_dimension, global_dimension],
+            )
+        return clps, residuals
 
 
 class EstimationProviderLinked(EstimationProvider):

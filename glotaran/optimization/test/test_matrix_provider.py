@@ -4,6 +4,7 @@ import xarray as xr
 
 from glotaran.optimization.data_provider import DataProvider
 from glotaran.optimization.data_provider import DataProviderLinked
+from glotaran.optimization.matrix_provider import MatrixProvider
 from glotaran.optimization.matrix_provider import MatrixProviderLinked
 from glotaran.optimization.matrix_provider import MatrixProviderUnlinked
 from glotaran.optimization.test.models import SimpleTestModel
@@ -188,3 +189,54 @@ def test_matrix_provider_linked_index_dependent(scheme: Scheme):
     # 2 compartments * 5 items in aligned global axis
     # See also: test_data_provider_linking_methods
     assert matrix_provider.number_of_clps == 2 * 5
+
+
+def test_megacomplex_scales_are_normalized_separately():
+    model = SimpleTestModel(
+        **{
+            "megacomplex": {
+                "m1": {"type": "simple-test-mc", "is_index_dependent": False},
+                "m2": {"type": "simple-test-mc", "is_index_dependent": False},
+            },
+            "dataset": {
+                "dataset1": {
+                    "megacomplex": ["m1", "m2"],
+                    "megacomplex_scale": ["local.1", "local.2"],
+                    "global_megacomplex": ["m1", "m2"],
+                    "global_megacomplex_scale": ["global.1", "global.2"],
+                },
+            },
+        }
+    )
+    parameters = Parameters.from_list(
+        [["local.1", 2.0], ["local.2", 6.0], ["global.1", 1.0], ["global.2", 3.0]]
+    )
+    dataset_group = model.get_dataset_groups()["default"]
+    dataset_group.set_parameters(parameters)
+    dataset_model = dataset_group.dataset_models["dataset1"]
+    global_axis = np.asarray([1, 5, 6])
+    model_axis = np.asarray([5, 7, 9, 12])
+
+    local_matrix = MatrixProvider.calculate_dataset_matrix(
+        dataset_model, global_axis, model_axis
+    ).matrix
+    expected_local_matrix = model.megacomplex["m1"].calculate_matrix(
+        dataset_model, global_axis, model_axis
+    )[1]
+    global_matrix = MatrixProvider.calculate_dataset_matrix(
+        dataset_model, global_axis, model_axis, global_matrix=True
+    ).matrix
+    expected_global_matrix = model.megacomplex["m1"].calculate_matrix(
+        dataset_model, model_axis, global_axis
+    )[1]
+
+    assert np.allclose(local_matrix, expected_local_matrix)
+    assert np.allclose(global_matrix, expected_global_matrix)
+    assert parameters.get("local.1").value == 2.0
+    assert parameters.get("local.2").value == 6.0
+    assert parameters.get("global.1").value == 1.0
+    assert parameters.get("global.2").value == 3.0
+
+    parameters.get("local.2").value = -2.0
+    with pytest.raises(ValueError, match="megacomplex_scale"):
+        MatrixProvider.calculate_dataset_matrix(dataset_model, global_axis, model_axis)

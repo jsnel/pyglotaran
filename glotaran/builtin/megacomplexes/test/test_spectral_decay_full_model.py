@@ -234,3 +234,89 @@ def test_kinetic_model(suite, nnls):
         # + 3 compartments * 30 items in global axis (dataset3)
         # + 3 shapes * 60 items in global axis (dataset4)
         assert result.number_of_clps == expected_number_of_clps_common + 90 + 180
+
+
+def test_global_decay_megacomplexes_have_a_matrices():
+    model = load_model(
+        """\
+dataset:
+    dataset1:
+        megacomplex: [spectral]
+        global_megacomplex: [mc1, mc2]
+        initial_concentration: j1
+        irf: irf1
+        single_amplitude_model: true
+megacomplex:
+    spectral:
+        type: spectral
+        shape:
+            s1: sh1
+            s2: sh2
+    mc1:
+        type: decay
+        k_matrix: [k1]
+    mc2:
+        type: decay
+        k_matrix: [k2]
+initial_concentration:
+    j1:
+        compartments: [s1, s2]
+        parameters: [j.1, j.2]
+k_matrix:
+    k1:
+        matrix:
+            (s1, s1): kinetic.1
+    k2:
+        matrix:
+            (s2, s2): kinetic.2
+irf:
+    irf1:
+        type: multi-gaussian
+        center: [irf.center]
+        width: [irf.width]
+shape:
+    sh1:
+        type: gaussian
+        amplitude: shapes.amps.1
+        location: shapes.locs.1
+        width: shapes.width.1
+    sh2:
+        type: gaussian
+        amplitude: shapes.amps.2
+        location: shapes.locs.2
+        width: shapes.width.2
+""",
+        format_name="yml_str",
+    )
+    parameters = load_parameters(
+        """\
+kinetic:
+    - ["1", 0.1, {vary: false}]
+    - ["2", 0.2, {vary: false}]
+j:
+    - ["1", 1, {vary: false, non-negative: false}]
+    - ["2", 1, {vary: false, non-negative: false}]
+irf:
+    - ["center", 0, {vary: false}]
+    - ["width", 1, {vary: false}]
+shapes:
+    amps: [1, 1, {vary: false}]
+    locs: [620, 680, {vary: false}]
+    width: [20, 20, {vary: false}]
+""",
+        format_name="yml_str",
+    )
+    axis = {"time": np.arange(-5, 20, 1.0), "spectral": np.arange(600, 701, 10)}
+    dataset = simulate(model, "dataset1", parameters, axis)
+    result = optimize(
+        Scheme(
+            model=model,
+            parameters=parameters,
+            data={"dataset1": dataset},
+            maximum_number_function_evaluations=1,
+        )
+    )
+
+    result_dataset = result.data["dataset1"]
+    assert "a_matrix_mc1" in result_dataset
+    assert "a_matrix_mc2" in result_dataset
