@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from glotaran.builtin.megacomplexes.ctilde import CtildeMegacomplex
+from glotaran.builtin.megacomplexes.ctilde.ctilde_megacomplex import is_ctilde_dataset_model
 from glotaran.model import DatasetGroup
 from glotaran.model import Model
 from glotaran.model.dataset_model import get_dataset_model_model_dimension
@@ -56,6 +58,16 @@ def prepare_generated_datasets(scheme: Scheme) -> None:
 
     Generated datasets use the spectral axis of real datasets in the same group.
     Their values are refreshed by :class:`DataProvider` whenever parameters change.
+
+    Parameters
+    ----------
+    scheme : Scheme
+        The optimization scheme whose missing model datasets will be generated.
+
+    Raises
+    ------
+    ValueError
+        If a generated dataset cannot resolve its source dataset or required axes.
     """
     if scheme.parameters is None:
         return
@@ -68,6 +80,79 @@ def prepare_generated_datasets(scheme: Scheme) -> None:
             continue
 
         dataset_model = fill_item(dataset_model_spec, scheme.model, scheme.parameters)
+        ctilde_megacomplexes = [
+            megacomplex
+            for megacomplex in dataset_model.megacomplex
+            if isinstance(megacomplex, CtildeMegacomplex)
+        ]
+        if ctilde_megacomplexes:
+            if len(ctilde_megacomplexes) != 1:
+                raise ValueError(f"Dataset '{label}' must contain exactly one Ctilde megacomplex.")
+            ctilde_megacomplex = ctilde_megacomplexes[0]
+            try:
+                source_dataset = data[ctilde_megacomplex.source_dataset]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Ctilde dataset '{label}' requires source dataset "
+                    f"'{ctilde_megacomplex.source_dataset}'."
+                ) from exc
+            source_model = scheme.model.dataset.get(ctilde_megacomplex.source_dataset)
+            if source_model is None or source_model.group != dataset_model.group:
+                raise ValueError(
+                    f"Ctilde source dataset '{ctilde_megacomplex.source_dataset}' must belong "
+                    f"to group '{dataset_model.group}'."
+                )
+
+            if not {"time", "spectral"}.issubset(source_dataset["data"].dims):
+                raise ValueError(
+                    f"Ctilde source dataset '{ctilde_megacomplex.source_dataset}' must have "
+                    "'time' and 'spectral' data dimensions."
+                )
+
+            from glotaran.optimization.matrix_provider import MatrixProvider
+
+            source_model = fill_item(source_model, scheme.model, scheme.parameters)
+            source_group = scheme.model.get_dataset_groups()[dataset_model.group]
+            source_group.set_parameters(scheme.parameters)
+            source_matrix_provider = MatrixProvider(source_group)
+            source_spectral_axis = source_dataset.coords["spectral"].data
+            source_time_axis = source_dataset.coords["time"].data
+            source_matrix = source_matrix_provider.calculate_dataset_matrix(
+                source_model, source_spectral_axis, source_time_axis
+            )
+            reduced_source_matrices = source_matrix_provider.reduce_matrix(
+                source_matrix, source_spectral_axis
+            )
+            source_basis = reduced_source_matrices[0]
+            if any(
+                matrix.clp_labels != source_basis.clp_labels
+                or not np.allclose(matrix.matrix, source_basis.matrix)
+                for matrix in reduced_source_matrices[1:]
+            ):
+                raise ValueError(
+                    f"Ctilde source dataset '{ctilde_megacomplex.source_dataset}' must have "
+                    "the same CLP relations over its full spectral range."
+                )
+
+            generated_dataset = xr.Dataset(
+                {
+                    "data": (
+                        ("time", "basis"),
+                        np.zeros(
+                            (source_time_axis.size, len(source_basis.clp_labels)),
+                            dtype=np.float64,
+                        ),
+                    )
+                },
+                coords={"time": source_time_axis, "basis": source_basis.clp_labels},
+                attrs={
+                    "generated_by_model": True,
+                    "source_dataset": ctilde_megacomplex.source_dataset,
+                },
+            )
+            generated_datasets[label] = generated_dataset
+            continue
+
         if not _generated_data_megacomplexes(dataset_model):
             continue
 
@@ -118,6 +203,7 @@ class DataProvider:
             The dataset group.
         """
         self._dataset_group = dataset_group
+        self._datasets: dict[str, xr.Dataset] = dict(scheme.data)
         self._data: dict[str, ArrayLike] = {}
         self._generated_data: dict[str, ArrayLike] = {}
         self._weight: dict[str, ArrayLike | None] = {}
@@ -328,8 +414,69 @@ class DataProvider:
         """
         return self._data[dataset_label]
 
+    def get_dataset(self, dataset_label: str) -> xr.Dataset:
+        """Get the original dataset associated with a label.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The label of the dataset.
+
+        Returns
+        -------
+        xr.Dataset
+            The dataset.
+        """
+        return self._datasets[dataset_label]
+
+    def update_ctilde_data(
+        self,
+        source_label: str,
+        dataset_label: str,
+        ctilde: xr.DataArray,
+        etilde: xr.DataArray,
+        observations: xr.Dataset,
+    ) -> None:
+        """Store current tilde matrices and refresh a generated Ctilde dataset.
+
+        Parameters
+        ----------
+        source_label : str
+            The label of the kinetic source dataset.
+        dataset_label : str
+            The label of the generated Ctilde dataset.
+        ctilde : xr.DataArray
+            The current kinetic concentration matrix.
+        etilde : xr.DataArray
+            The current estimated spectra.
+        observations : xr.Dataset
+            The newly calculated Cnnls observations.
+        """
+        self._datasets[source_label]["Ctilde"] = ctilde
+        self._datasets[source_label]["Etilde"] = etilde
+        self._datasets[dataset_label]["data"] = observations["data"]
+        self._datasets[dataset_label]["refresid"] = observations["refresid"]
+
+        generated_data = observations["data"].data.copy()
+        self._generated_data[dataset_label] = generated_data.copy()
+        weight = self._weight[dataset_label]
+        if weight is not None:
+            generated_data *= weight
+        self._data[dataset_label] = generated_data
+
     def get_generated_data(self, dataset_label: str) -> ArrayLike | None:
-        """Get the latest unweighted model-generated data, if any."""
+        """Get the latest unweighted model-generated data, if any.
+
+        Parameters
+        ----------
+        dataset_label : str
+            The label of the dataset.
+
+        Returns
+        -------
+        ArrayLike | None
+            The generated data, or None if the dataset has no generated data.
+        """
         return self._generated_data.get(dataset_label)
 
     def get_weight(self, dataset_label: str) -> ArrayLike | None:
@@ -457,6 +604,10 @@ class DataProviderLinked(DataProvider):
         """
         super().__init__(scheme, dataset_group)
         aligned_global_axes = self.create_aligned_global_axes(scheme)
+        if not aligned_global_axes:
+            raise ValueError(
+                "A linked dataset group must contain at least one dataset that estimates CLPs."
+            )
         self._aligned_global_axis, self._aligned_data = self.align_data(aligned_global_axes)
         self._aligned_dataset_indices = self.align_dataset_indices(aligned_global_axes)
         self._aligned_group_labels, self._group_definitions = self.align_groups(
@@ -468,7 +619,9 @@ class DataProviderLinked(DataProvider):
         """Refresh generated data and rebuild linked data alignment."""
         super().update_generated_data()
         aligned_global_axes = {
-            label: self._global_axes[label] for label in self._dataset_group.dataset_models
+            label: self._global_axes[label]
+            for label in self._dataset_group.dataset_models
+            if not is_ctilde_dataset_model(self._dataset_group.dataset_models[label])
         }
         self._aligned_global_axis, self._aligned_data = self.align_data(aligned_global_axes)
 
@@ -613,6 +766,8 @@ class DataProviderLinked(DataProvider):
         aligned_axis_values = None
         aligned_global_axes = {}
         for label, global_axis in self._global_axes.items():
+            if is_ctilde_dataset_model(self._dataset_group.dataset_models[label]):
+                continue
             aligned_global_axis = global_axis
             if aligned_axis_values is None:
                 aligned_axis_values = aligned_global_axis
@@ -765,7 +920,7 @@ class DataProviderLinked(DataProvider):
                 coords={"global": aligned_global_axes[label]},
             )
             for label, weight in self._weight.items()
-            if weight is not None
+            if weight is not None and label in aligned_global_axes
         }
 
         aligned_weights: list[ArrayLike | None] = [None] * self._aligned_global_axis.size

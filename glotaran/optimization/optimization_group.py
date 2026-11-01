@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from glotaran.builtin.megacomplexes.ctilde import CtildeMegacomplex
 from glotaran.io.prepare_dataset import add_svd_to_dataset
 from glotaran.model import DatasetGroup
 from glotaran.model.dataset_model import finalize_dataset_model
@@ -322,6 +323,22 @@ class OptimizationGroup:
             result_dataset["fitted_data"] = result_dataset.data - result_dataset.residual
 
             finalize_dataset_model(dataset_model, result_dataset)
+
+        for label, dataset_model in self._dataset_group.dataset_models.items():
+            ctilde_megacomplex = next(
+                (
+                    megacomplex
+                    for megacomplex in dataset_model.megacomplex or []
+                    if isinstance(megacomplex, CtildeMegacomplex)
+                ),
+                None,
+            )
+            if ctilde_megacomplex is not None:
+                ctilde_megacomplex.add_result_data(
+                    result_datasets[label],
+                    result_datasets[ctilde_megacomplex.source_dataset],
+                    add_svd=self._add_svd,
+                )
 
         return result_datasets
 

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from glotaran.builtin.megacomplexes.ctilde import CtildeMegacomplex
+from glotaran.builtin.megacomplexes.ctilde.ctilde_megacomplex import is_ctilde_dataset_model
 from glotaran.model import DatasetGroup
 from glotaran.model import DatasetModel
 from glotaran.model import EqualAreaPenalty
@@ -28,6 +30,136 @@ SUPPORTED_RESIUDAL_FUNCTIONS = {
     "variable_projection": residual_variable_projection,
     "non_negative_least_squares": residual_nnls,
 }
+
+
+def _calculate_ctilde_residual(
+    dataset_model: DatasetModel,
+    data_provider: DataProvider,
+    matrix_provider: MatrixProviderUnlinked | MatrixProviderLinked,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Calculate direct weighted residuals and identity CLPs for a Ctilde dataset.
+
+    Parameters
+    ----------
+    dataset_model : DatasetModel
+        The direct-residual dataset model.
+    data_provider : DataProvider
+        The provider containing observations, axes, and dataset weights.
+    matrix_provider : MatrixProviderUnlinked | MatrixProviderLinked
+        The provider containing current kinetic predictions.
+
+    Returns
+    -------
+    tuple[np.ndarray, list[np.ndarray]]
+        The fixed identity CLPs and weighted residuals by basis coordinate.
+
+    Raises
+    ------
+    ValueError
+        If the basis, time, or scale-list dimensions are incompatible.
+    """
+    label = dataset_model.label
+    matrix = np.asarray(matrix_provider.get_matrix_container(label).matrix).copy()
+    global_axis = data_provider.get_global_axis(label)
+    if dataset_model.scale is not None:
+        scale = dataset_model.scale
+        assert not isinstance(scale, str)
+        matrix *= float(scale.value)
+    if dataset_model.scale_list is not None:
+        if len(dataset_model.scale_list) != len(global_axis):
+            raise ValueError(
+                f"Dataset '{label}': length of 'scale_list' ({len(dataset_model.scale_list)}) "
+                f"does not match the number of basis points ({len(global_axis)})."
+            )
+        scale_values = []
+        for scale in dataset_model.scale_list:
+            assert not isinstance(scale, str)
+            scale_values.append(float(scale.value))
+        matrix *= np.asarray(scale_values)[np.newaxis, :]
+
+    weight = data_provider.get_weight(label)
+    if weight is not None:
+        matrix *= weight
+
+    data = np.asarray(data_provider.get_data(label))
+    if data.shape != matrix.shape:
+        raise ValueError(
+            f"Ctilde dataset '{label}' observations and kinetic predictions must have "
+            "matching (time, basis) dimensions."
+        )
+
+    clp_labels = matrix_provider.get_matrix_container(label).clp_labels
+    if len(global_axis) != len(clp_labels):
+        raise ValueError(
+            f"Ctilde dataset '{label}' basis coordinates must match its kinetic matrix."
+        )
+    residual = data - matrix
+    return np.eye(len(clp_labels)), [residual[:, index] for index in range(residual.shape[1])]
+
+
+def _update_ctilde_observations(
+    dataset_model: DatasetModel,
+    data_provider: DataProvider,
+    matrix_provider: MatrixProviderUnlinked | MatrixProviderLinked,
+    estimated_clps: dict[str, xr.DataArray],
+) -> None:
+    """Generate Cnnls observations after estimating the source dataset CLPs.
+
+    Parameters
+    ----------
+    dataset_model : DatasetModel
+        The auxiliary Ctilde dataset model.
+    data_provider : DataProvider
+        The source and auxiliary observations.
+    matrix_provider : MatrixProviderUnlinked | MatrixProviderLinked
+        The current source and auxiliary kinetic matrices.
+    estimated_clps : dict[str, xr.DataArray]
+        The estimated spectra by source dataset.
+
+    Raises
+    ------
+    ValueError
+        If the estimated spectra do not match the reduced kinetic basis.
+    """
+    ctilde_megacomplex = next(
+        megacomplex
+        for megacomplex in dataset_model.megacomplex
+        if isinstance(megacomplex, CtildeMegacomplex)
+    )
+    source_label = ctilde_megacomplex.source_dataset
+    ctilde_label = dataset_model.label
+    source_clps = estimated_clps[source_label]
+    basis_labels = matrix_provider.get_matrix_container(ctilde_label).clp_labels
+    source_global_dimension = data_provider.get_global_dimension(source_label)
+    if "clp_label" not in source_clps.dims or source_global_dimension not in source_clps.dims:
+        raise ValueError(f"Ctilde source dataset '{source_label}' must use a spectral CLP model.")
+    try:
+        etilde = source_clps.sel(clp_label=basis_labels).rename({"clp_label": "basis"})
+    except KeyError as exc:
+        raise ValueError(
+            f"Ctilde basis for dataset '{ctilde_label}' must match source CLP labels "
+            f"{basis_labels}."
+        ) from exc
+
+    time_axis = data_provider.get_model_axis(ctilde_label)
+    basis_axis = data_provider.get_global_axis(ctilde_label)
+    ctilde = xr.DataArray(
+        matrix_provider.get_matrix_container(ctilde_label).matrix,
+        coords={"time": time_axis, "basis": basis_axis},
+        dims=("time", "basis"),
+    )
+    observations = ctilde_megacomplex.calculate_observations(
+        data_provider.get_dataset(source_label),
+        ctilde,
+        etilde,
+    )
+    data_provider.update_ctilde_data(
+        source_label,
+        ctilde_label,
+        ctilde,
+        etilde,
+        observations,
+    )
 
 
 class UnsupportedResidualFunctionError(ValueError):
@@ -336,16 +468,39 @@ class EstimationProviderUnlinked(EstimationProvider):
         self._residuals: dict[str, list[ArrayLike] | ArrayLike] = {
             label: [] for label in self.group.dataset_models
         }
+        self._ctilde_clps: dict[str, ArrayLike] = {}
+        self._ctilde_residuals: dict[str, list[ArrayLike]] = {}
 
     def estimate(self):
         """Calculate the estimation."""
         self._clp_penalty.clear()
+        self._ctilde_clps.clear()
+        self._ctilde_residuals.clear()
 
         for dataset_model in self.group.dataset_models.values():
+            if is_ctilde_dataset_model(dataset_model):
+                continue
             if has_dataset_model_global_model(dataset_model):
                 self.calculate_full_model_estimation(dataset_model)
             else:
                 self.calculate_estimation(dataset_model)
+
+        for dataset_model in self.group.dataset_models.values():
+            if not is_ctilde_dataset_model(dataset_model):
+                continue
+            _update_ctilde_observations(
+                dataset_model,
+                self._data_provider,
+                self._matrix_provider,
+                self.get_result()[0],
+            )
+            self._clps[dataset_model.label], self._residuals[dataset_model.label] = (
+                _calculate_ctilde_residual(
+                    dataset_model, self._data_provider, self._matrix_provider
+                )
+            )
+            self._ctilde_clps[dataset_model.label] = self._clps[dataset_model.label]
+            self._ctilde_residuals[dataset_model.label] = self._residuals[dataset_model.label]
 
     def get_full_penalty(self) -> ArrayLike:
         """Get the full penalty.
@@ -384,6 +539,8 @@ class EstimationProviderUnlinked(EstimationProvider):
         """
         clps, residuals = {}, {}
         for label, dataset_model in self.group.dataset_models.items():
+            if is_ctilde_dataset_model(dataset_model) and label not in self._ctilde_clps:
+                continue
             model_dimension = self._data_provider.get_model_dimension(label)
             model_axis = self._data_provider.get_model_axis(label)
             global_dimension = self._data_provider.get_global_dimension(label)
@@ -616,6 +773,23 @@ class EstimationProviderLinked(EstimationProvider):
             )
             self._residuals[index] = residual
 
+        self._ctilde_clps: dict[str, np.ndarray] = {}
+        self._ctilde_residuals: dict[str, list[np.ndarray]] = {}
+        for dataset_model in self.group.dataset_models.values():
+            if is_ctilde_dataset_model(dataset_model):
+                _update_ctilde_observations(
+                    dataset_model,
+                    self._data_provider,
+                    self._matrix_provider,
+                    self.get_result()[0],
+                )
+                (
+                    self._ctilde_clps[dataset_model.label],
+                    self._ctilde_residuals[dataset_model.label],
+                ) = _calculate_ctilde_residual(
+                    dataset_model, self._data_provider, self._matrix_provider
+                )
+
         self._clp_penalty, self._clp_penalty_areas = self.calculate_clp_penalties(
             self._matrix_provider.aligned_full_clp_labels,
             self._clps,
@@ -630,7 +804,12 @@ class EstimationProviderLinked(EstimationProvider):
         ArrayLike
             The clp penalty.
         """
-        full_penalty = np.concatenate((np.concatenate(self._residuals), self._clp_penalty))
+        full_penalty_values = [np.concatenate(self._residuals)]
+        full_penalty_values.extend(
+            np.concatenate(residuals)
+            for residuals in getattr(self, "_ctilde_residuals", {}).values()
+        )
+        full_penalty = np.concatenate((*full_penalty_values, self._clp_penalty))
         return full_penalty
 
     def get_result(
@@ -649,6 +828,29 @@ class EstimationProviderLinked(EstimationProvider):
         clps: dict[str, xr.DataArray] = {}
         residuals: dict[str, xr.DataArray] = {}
         for dataset_label in self.group.dataset_models:
+            if is_ctilde_dataset_model(self.group.dataset_models[dataset_label]):
+                if dataset_label not in self._ctilde_clps:
+                    continue
+                model_dimension = self._data_provider.get_model_dimension(dataset_label)
+                model_axis = self._data_provider.get_model_axis(dataset_label)
+                global_dimension = self._data_provider.get_global_dimension(dataset_label)
+                global_axis = self._data_provider.get_global_axis(dataset_label)
+                clp_labels = self._matrix_provider.get_matrix_container(dataset_label).clp_labels
+                clps[dataset_label] = xr.DataArray(
+                    self._ctilde_clps[dataset_label],
+                    coords={
+                        global_dimension: global_axis,
+                        "clp_label": clp_labels,
+                    },
+                    dims=[global_dimension, "clp_label"],
+                )
+                residuals[dataset_label] = xr.DataArray(
+                    np.asarray(self._ctilde_residuals[dataset_label]).T,
+                    coords={global_dimension: global_axis, model_dimension: model_axis},
+                    dims=[model_dimension, global_dimension],
+                )
+                continue
+
             dataset_clps, dataset_residual = [], []
             for index in range(self._data_provider.aligned_global_axis.size):
                 group_label = self._data_provider.get_aligned_group_label(index)

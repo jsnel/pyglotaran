@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
+from glotaran.builtin.megacomplexes.ctilde import CtildeMegacomplex
+from glotaran.builtin.megacomplexes.ctilde.ctilde_megacomplex import is_ctilde_dataset_model
 from glotaran.model import DatasetGroup
 from glotaran.model import DatasetModel
 from glotaran.model.dataset_model import has_dataset_model_global_model
@@ -138,14 +140,109 @@ class MatrixProvider:
         return self._matrix_containers[dataset_label]
 
     def calculate_dataset_matrices(self):
-        """Calculate the matrices of the datasets in the dataset group."""
+        """Calculate the matrices of the datasets in the dataset group.
+
+        Raises
+        ------
+        ValueError
+            If a Ctilde source has IRF dispersion or relations vary across its spectral range.
+        """
         for label, dataset_model in self.group.dataset_models.items():
             model_axis = self._data_provider.get_model_axis(label)
             global_axis = self._data_provider.get_global_axis(label)
 
-            self._matrix_containers[label] = self.calculate_dataset_matrix(
-                dataset_model, global_axis, model_axis
+            ctilde_megacomplexes = [
+                megacomplex
+                for megacomplex in dataset_model.megacomplex
+                if isinstance(megacomplex, CtildeMegacomplex)
+            ]
+            if not ctilde_megacomplexes:
+                self._matrix_containers[label] = self.calculate_dataset_matrix(
+                    dataset_model, global_axis, model_axis
+                )
+                continue
+
+            if len(ctilde_megacomplexes) != 1:
+                raise ValueError(f"Dataset '{label}' must contain exactly one Ctilde megacomplex.")
+            ctilde_megacomplex = ctilde_megacomplexes[0]
+            source_label = ctilde_megacomplex.source_dataset
+            if source_label not in self.group.dataset_models:
+                raise ValueError(
+                    f"Ctilde dataset '{label}' requires source dataset '{source_label}' "
+                    "in the same dataset group."
+                )
+
+            source_model = self.group.dataset_models[source_label]
+            source_model_axis = self._data_provider.get_model_axis(source_label)
+            source_global_axis = self._data_provider.get_global_axis(source_label)
+            source_matrix = self.calculate_dataset_matrix(
+                source_model, source_global_axis, source_model_axis
             )
+            if source_matrix.is_index_dependent:
+                raise ValueError(
+                    f"Ctilde source dataset '{source_label}' cannot have IRF dispersion."
+                )
+
+            reduced_source_matrices = self.reduce_matrix(source_matrix, source_global_axis)
+            source_basis = reduced_source_matrices[0]
+            if any(
+                matrix.clp_labels != source_basis.clp_labels
+                or not np.allclose(matrix.matrix, source_basis.matrix)
+                for matrix in reduced_source_matrices[1:]
+            ):
+                raise ValueError(
+                    f"Ctilde source dataset '{source_label}' must have the same CLP "
+                    "relations over its full spectral range."
+                )
+
+            self._matrix_containers[label] = self.calculate_ctilde_matrix(
+                dataset_model,
+                global_axis,
+                model_axis,
+                source_basis.clp_labels,
+                source_basis.matrix,
+            )
+
+    @staticmethod
+    def calculate_ctilde_matrix(
+        dataset_model: DatasetModel,
+        global_axis: ArrayLike,
+        model_axis: ArrayLike,
+        source_labels: list[str],
+        source_matrix: ArrayLike,
+    ) -> MatrixContainer:
+        """Calculate a Ctilde matrix from a source dataset's reduced kinetic matrix.
+
+        Parameters
+        ----------
+        dataset_model : DatasetModel
+            The auxiliary Ctilde dataset model.
+        global_axis : ArrayLike
+            The basis axis of the auxiliary dataset.
+        model_axis : ArrayLike
+            The time axis of the auxiliary dataset.
+        source_labels : list[str]
+            The basis labels retained after source CLP relations are applied.
+        source_matrix : ArrayLike
+            The current source kinetic matrix after applying CLP relations.
+
+        Returns
+        -------
+        MatrixContainer
+            The time-by-basis matrix aligned to the auxiliary dataset.
+        """
+        ctilde_megacomplex = next(
+            megacomplex
+            for megacomplex in dataset_model.megacomplex
+            if isinstance(megacomplex, CtildeMegacomplex)
+        )
+        clp_labels, matrix = ctilde_megacomplex.calculate_matrix(
+            dataset_model,
+            global_axis,
+            model_axis,
+            source_matrix=(source_labels, source_matrix),
+        )
+        return MatrixContainer(clp_labels=clp_labels, matrix=np.asarray(matrix))
 
     @staticmethod
     def calculate_dataset_matrix(
@@ -583,7 +680,13 @@ class MatrixProviderUnlinked(MatrixProvider):
                 )
 
     def calculate_prepared_matrices(self):
-        """Calculate the prepared matrices of the datasets in the dataset group."""
+        """Calculate the prepared matrices of the datasets in the dataset group.
+
+        Raises
+        ------
+        ValueError
+            If a dataset scale list does not match its global axis.
+        """
         for label, dataset_model in self.group.dataset_models.items():
             if has_dataset_model_global_model(dataset_model):
                 continue
@@ -591,6 +694,10 @@ class MatrixProviderUnlinked(MatrixProvider):
             scale_list = dataset_model.scale_list
             weight = self._data_provider.get_weight(label)
             global_axis = self._data_provider.get_global_axis(label)
+            if is_ctilde_dataset_model(dataset_model):
+                matrix = self.get_matrix_container(label).create_scaled_matrix(scale_val)
+                self._prepared_matrix_container[label] = [matrix for _ in range(global_axis.size)]
+                continue
             if scale_list is not None:
                 if len(scale_list) != len(global_axis):
                     raise ValueError(
@@ -664,6 +771,8 @@ class MatrixProviderUnlinked(MatrixProvider):
         """
         nr_of_clps = 0
         for dataset_label, dataset_model in self.group.dataset_models.items():
+            if is_ctilde_dataset_model(dataset_model):
+                continue
             if has_dataset_model_global_model(dataset_model):
                 global_clp_labels = self.get_global_matrix_container(dataset_label).clp_labels
                 if is_dataset_single_amplitude_model(dataset_model):
