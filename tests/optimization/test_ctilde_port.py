@@ -332,7 +332,14 @@ def test_ctilde_diagnostics_are_saved_and_reloaded(tmp_path: Path):
     loaded = load_result(tmp_path / "result")
     expected = result.optimization_results["auxiliary"].elements["ctilde_model"]
     actual = loaded.optimization_results["auxiliary"].elements["ctilde_model"]
-    for name in ("Ctilde", "Etilde", "refresid"):
+    for name in (
+        "Ctilde",
+        "Etilde",
+        "refresid",
+        "refresid_singular_values",
+        "refresid_left_singular_vectors",
+        "refresid_right_singular_vectors",
+    ):
         xr.testing.assert_allclose(actual[name], expected[name])
 
 
