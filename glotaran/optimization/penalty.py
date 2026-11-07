@@ -8,6 +8,8 @@ import numpy as np
 from glotaran.model.clp_penalties import EqualAreaPenaltyDiagnostic
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from glotaran.model.clp_penalties import EqualAreaPenalty
     from glotaran.optimization.estimation import OptimizationEstimation
     from glotaran.optimization.matrix import OptimizationMatrix
@@ -62,33 +64,52 @@ def calculate_clp_penalties(
     list[float]
         The clp penalty.
     """
-    values = []
+    return np.asarray(
+        [value for _, _, _, value in _iter_penalties(matrices, estimations, global_axis, penalties)]
+    )
+
+
+def _iter_penalties(
+    matrices: list[OptimizationMatrix],
+    estimations: list[OptimizationEstimation],
+    global_axis: ArrayLike,
+    penalties: list[EqualAreaPenalty],
+) -> Iterator[tuple[EqualAreaPenalty, float, float, float]]:
+    """Calculate only penalties whose source and target both have CLP values."""
     for penalty in penalties:
-        source = float(
-            np.sum(
-                _get_area(
-                    penalty.source, penalty.source_intervals, matrices, estimations, global_axis
-                )
-            )
+        source_values = _get_area(
+            penalty.source, penalty.source_intervals, matrices, estimations, global_axis
         )
-        target = float(penalty.parameter) * float(
-            np.sum(
-                _get_area(
-                    penalty.target, penalty.target_intervals, matrices, estimations, global_axis
-                )
-            )
+        target_values = _get_area(
+            penalty.target, penalty.target_intervals, matrices, estimations, global_axis
         )
-        if penalty.relative and np.isclose(target, 0):
+        if source_values.size == 0 and target_values.size == 0:
+            continue
+        if target_values.size == 0:
+            warn(
+                f"Ignoring equal area penalty, target clp {penalty.target} not present.",
+                stacklevel=2,
+            )
+            continue
+        if source_values.size == 0:
+            warn(
+                f"Ignoring equal area penalty, source clp {penalty.source} not present.",
+                stacklevel=2,
+            )
+            continue
+        source = float(np.sum(source_values))
+        target = float(np.sum(target_values))
+        scaled_target = float(penalty.parameter) * target
+        if penalty.relative and np.isclose(scaled_target, 0):
             warn(
                 "Falling back to absolute equal area penalty near zero target area.", stacklevel=2
             )
         value = (
-            (source / target - 1.0)
-            if penalty.relative and not np.isclose(target, 0)
-            else abs(source - target)
+            (source / scaled_target - 1.0)
+            if penalty.relative and not np.isclose(scaled_target, 0)
+            else abs(source - scaled_target)
         )
-        values.append(value * penalty.weight)
-    return np.asarray(values)
+        yield penalty, source, target, value * penalty.weight
 
 
 def calculate_clp_penalty_diagnostics(
@@ -98,39 +119,20 @@ def calculate_clp_penalty_diagnostics(
     penalties: list[EqualAreaPenalty],
 ) -> list[EqualAreaPenaltyDiagnostic]:
     """Capture final source and target areas without changing objective state."""
-    values = calculate_clp_penalties(matrices, estimations, global_axis, penalties)
     return [
         EqualAreaPenaltyDiagnostic(
             source=penalty.source,
             target=penalty.target,
             source_intervals=penalty.source_intervals,
             target_intervals=penalty.target_intervals,
-            source_area=float(
-                np.sum(
-                    _get_area(
-                        penalty.source,
-                        penalty.source_intervals,
-                        matrices,
-                        estimations,
-                        global_axis,
-                    )
-                )
-            ),
-            target_area=float(
-                np.sum(
-                    _get_area(
-                        penalty.target,
-                        penalty.target_intervals,
-                        matrices,
-                        estimations,
-                        global_axis,
-                    )
-                )
-            ),
+            source_area=source,
+            target_area=target,
             parameter=float(penalty.parameter),
             relative=penalty.relative,
             weight=penalty.weight,
             penalty=float(value),
         )
-        for penalty, value in zip(penalties, values, strict=True)
+        for penalty, source, target, value in _iter_penalties(
+            matrices, estimations, global_axis, penalties
+        )
     ]
