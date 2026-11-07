@@ -180,6 +180,43 @@ def test_source_missing_is_rejected():
         make_scheme().optimize(params(), {}, dry_run=True, verbose=False, raise_exception=True)
 
 
+def test_supplied_ctilde_data_is_rejected():
+    from glotaran.model.errors import GlotaranUserError
+
+    with pytest.raises(GlotaranUserError, match="Ctilde dataset 'auxiliary'.*input data"):
+        make_scheme().optimize(
+            params(), {"source": input_data(), "auxiliary": input_data()},
+            dry_run=True, verbose=False, raise_exception=True,
+        )
+
+
+def test_supplied_ctilde_data_is_rejected_before_project_record(tmp_path):
+    from glotaran.model.errors import GlotaranUserError
+    from glotaran.project import Project
+
+    project = Project.start(tmp_path)
+    with pytest.raises(GlotaranUserError, match="Ctilde dataset 'auxiliary'.*input data"):
+        project.optimize(
+            make_scheme(), params(), {"source": input_data(), "auxiliary": input_data()},
+            verbose=False, raise_exception=True,
+        )
+    assert not project.results_folder.exists()
+
+
+def test_supplied_ctilde_data_is_rejected_by_direct_optimization():
+    from glotaran.model.errors import GlotaranModelError
+    from glotaran.optimization.optimization import Optimization
+
+    scheme = make_scheme()
+    scheme._load_data({"source": input_data()})
+    scheme.experiments["one"].datasets["auxiliary"].data = input_data()
+    with pytest.raises(GlotaranModelError, match="Ctilde dataset 'auxiliary'.*input data"):
+        Optimization(
+            models=list(scheme.experiments.values()), parameters=params(),
+            library=scheme.library, verbose=False, raise_exception=True,
+        )
+
+
 def test_source_in_other_experiment_is_rejected():
     from glotaran.model.experiment_model import ExperimentModel
 

@@ -93,6 +93,17 @@ class Scheme(BaseModel):
         for experiment in self.experiments.values():
             for label, data_model in experiment.datasets.items():
                 if label in datasets:
+                    if any(
+                        isinstance(
+                            self.library[element] if isinstance(element, str) else element,
+                            CtildeElement,
+                        )
+                        for element in data_model.elements
+                    ):
+                        raise GlotaranUserError(
+                            f"Ctilde dataset '{label}' is generated during optimization; "
+                            "supplying its own input data is not supported."
+                        )
                     data_model.data = datasets[label]
                 elif any(
                     hasattr(
