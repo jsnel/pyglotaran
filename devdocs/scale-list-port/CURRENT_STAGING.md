@@ -75,6 +75,10 @@ the manifests, case-study comparisons, source revisions and guarded-run logs.
 The full staging core suite reported 773 passed and 9 expected failures; a
 separate test confirmed that the new SVD arrays survive result save and reload.
 The workspace validation suite reported 81 passed and 1 skipped.
+The separate guarded common-example benchmark completed 150 timed samples. Its
+evaluation counts matched in 13 of 15 fits; the two mismatches and differences
+in Python and scientific dependencies limit performance comparisons. The
+benchmark does not measure the linked-ST or Ctilde cases.
 
 At code commit `33ce20fb`, guarded serial checks reported 763 core tests passed
 with 9 xfailed, and 75 workspace validation tests passed with 1 skipped. Fresh
