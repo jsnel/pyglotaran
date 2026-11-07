@@ -1,0 +1,168 @@
+"""Linked full-model variable projection with a shared set of CLPs."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import xarray as xr
+
+from glotaran.model.data_model import is_data_model_single_amplitude
+from glotaran.optimization.data import LinkedFullOptimizationData, OptimizationData
+from glotaran.optimization.estimation import OptimizationEstimation
+from glotaran.optimization.matrix import OptimizationMatrix
+from glotaran.optimization.objective import FitDecomposition, OptimizationObjectiveResult, OptimizationResult
+
+
+@dataclass
+class FullDataset:
+    data: OptimizationData
+    local: OptimizationMatrix
+    global_matrix: OptimizationMatrix
+    pairs: list[tuple[str, str]]
+    reduced_pairs: list[tuple[str, str]]
+    expansion: np.ndarray
+    matrix: np.ndarray
+
+
+def _normalized_matrix(data: OptimizationData, *, global_matrix: bool) -> OptimizationMatrix:
+    """Apply the reference's normalization to explicitly supplied element scales."""
+    model = data.model
+    elements = model.global_elements if global_matrix else model.elements
+    scales = model.global_element_scale if global_matrix else model.element_scale
+    assert elements
+    scale_values = [
+        None if scales is None or element.label not in scales
+        else float(getattr(scales[element.label], 'value', scales[element.label]))
+        for element in elements
+    ]
+    defined = [scale for scale in scale_values if scale is not None]
+    total = sum(defined)
+    if defined and (not np.isfinite(total) or total == 0):
+        raise ValueError('Element scale sum must be finite and nonzero')
+    global_axis, model_axis = data.global_axis, data.model_axis
+    if global_matrix:
+        global_axis, model_axis = model_axis, global_axis
+    matrices = [
+        OptimizationMatrix.from_element(
+            None if scale is None else scale / total, element, model, global_axis, model_axis
+        )
+        for scale, element in zip(scale_values, elements, strict=True)
+    ]
+    matrix = matrices[0] if len(matrices) == 1 else OptimizationMatrix.combine(matrices)
+    if not global_matrix:
+        if data.dataset_scale is not None:
+            matrix = matrix.scale(data.dataset_scale)
+        if data.scale_list is not None:
+            matrix = matrix.scale_by_global_indices(data.scale_list)
+    return matrix
+
+
+def _prepare_dataset(data: OptimizationData, relations) -> FullDataset:
+    local = _normalized_matrix(data, global_matrix=False)
+    global_matrix = _normalized_matrix(data, global_matrix=True)
+    if global_matrix.is_index_dependent:
+        raise ValueError('Index dependent global matrices are not supported')
+    if local.constraints or global_matrix.constraints:
+        raise ValueError('CLP constraints on linked full models are not supported')
+    paired = is_data_model_single_amplitude(data.model)
+    if paired and len(global_matrix.clp_axis) != len(local.clp_axis):
+        raise ValueError('Single-amplitude models require equal component counts')
+    # Staging may resolve kinetic labels in another order than the reference.
+    # When both axes have the same distinct labels, pair matching names; otherwise
+    # retain the author's positional pairing of the two distinct axes.
+    if paired and (len(set(global_matrix.clp_axis)) == len(global_matrix.clp_axis)
+                   and set(global_matrix.clp_axis) == set(local.clp_axis)):
+        order = [global_matrix.clp_axis.index(label) for label in local.clp_axis]
+        global_matrix = OptimizationMatrix(list(local.clp_axis), global_matrix.array[:, order])
+    pairs = (list(zip(global_matrix.clp_axis, local.clp_axis, strict=True)) if paired else
+             [(g, m) for g in global_matrix.clp_axis for m in local.clp_axis])
+    if len(set(pairs)) != len(pairs):
+        raise ValueError('Linked full models require unique CLP label pairs')
+    local_values = (local.array if local.is_index_dependent else
+                    np.broadcast_to(local.array, (len(data.global_axis),) + local.array.shape))
+    if paired:
+        matrix = (local_values * global_matrix.array[:, None, :]).reshape(-1, len(pairs))
+    else:
+        matrix = np.einsum('gmi,gj->gmji', local_values, global_matrix.array).reshape(-1, len(pairs))
+    if data.flat_weight is not None:
+        matrix *= data.flat_weight[:, None]
+    expansion = np.eye(len(pairs))
+    removed = []
+    applicable_relations = []
+    for relation in relations if paired else []:
+        source, target = (relation.source, relation.source), (relation.target, relation.target)
+        if source not in pairs or target not in pairs:
+            continue
+        applies = [relation.applies(index) for index in data.global_axis]
+        if any(applies) and not all(applies):
+            raise ValueError('CLP relation intervals partially overlapping a full-model axis are unsupported')
+        if not any(applies):
+            continue
+        applicable_relations.append(relation)
+    targets = [relation.target for relation in applicable_relations]
+    sources = [relation.source for relation in applicable_relations]
+    if len(targets) != len(set(targets)) or set(targets) & set(sources):
+        raise ValueError('Chained or multiple CLP relations are unsupported')
+    for relation in applicable_relations:
+        source, target = (relation.source, relation.source), (relation.target, relation.target)
+        source_index, target_index = pairs.index(source), pairs.index(target)
+        expansion[target_index, source_index] = float(getattr(relation.parameter, 'value', relation.parameter))
+        removed.append(target_index)
+    keep = [i for i in range(len(pairs)) if i not in removed]
+    expansion = expansion[:, keep]
+    return FullDataset(data, local, global_matrix, pairs, [pairs[i] for i in keep],
+                       expansion, matrix @ expansion)
+
+
+def build_linked_full(objective):
+    """Build one common full-model linear system at the current parameters."""
+    data_provider = objective.data
+    assert isinstance(data_provider, LinkedFullOptimizationData)
+    data_provider.update_generated_data()
+    datasets = {label: _prepare_dataset(data, objective.model.clp_relations)
+                for label, data in data_provider.data.items()}
+    aligned = list(dict.fromkeys(pair for dataset in datasets.values() for pair in dataset.reduced_pairs))
+    matrices, vectors = [], []
+    for dataset in datasets.values():
+        aligned_matrix = np.zeros((dataset.matrix.shape[0], len(aligned)))
+        aligned_matrix[:, [aligned.index(pair) for pair in dataset.reduced_pairs]] = dataset.matrix
+        matrices.append(aligned_matrix)
+        assert dataset.data.flat_data is not None
+        vectors.append(dataset.data.flat_data)
+    return datasets, aligned, np.vstack(matrices), np.concatenate(vectors)
+
+
+def calculate_linked_full(objective, *, result):
+    """Solve a shared full-model CLP system and optionally build native results."""
+    datasets, aligned, matrix, vector = build_linked_full(objective)
+    estimation = OptimizationEstimation.calculate(matrix, vector, objective.model.residual_function)
+    if not result:
+        return estimation.residual
+    results = {}
+    offset = 0
+    for label, dataset in datasets.items():
+        data, local, global_matrix = dataset.data, dataset.local, dataset.global_matrix
+        size = data.flat_data.size
+        values = dataset.expansion @ estimation.clp[[aligned.index(pair) for pair in dataset.reduced_pairs]]
+        shape = (len(global_matrix.clp_axis), len(local.clp_axis))
+        clp_values = np.diag(values) if is_data_model_single_amplitude(data.model) else values.reshape(shape)
+        clp = xr.DataArray(clp_values, coords={'global_clp_label': global_matrix.clp_axis,
+                                               'clp_label': local.clp_axis},
+                           dims=['global_clp_label', 'clp_label'])
+        model_dim, global_dim = data.model_dimension, data.global_dimension
+        model_axis, global_axis = data.model_axis, data.global_axis
+        local_array = local.to_data_array(global_dim, global_axis, model_dim, model_axis)
+        global_array = global_matrix.to_data_array(model_dim, model_axis, global_dim, global_axis)
+        result_dataset = objective.create_result_dataset(data)
+        result_dataset['residual'] = xr.DataArray(
+            estimation.residual[offset:offset + size].reshape(global_axis.size, model_axis.size).T,
+            coords={model_dim: model_axis, global_dim: global_axis}, dims=[model_dim, global_dim])
+        data.unweight_result_dataset(result_dataset)
+        results[label] = OptimizationResult(
+            input_data=result_dataset.data, residuals=result_dataset.residual,
+            elements={label: xr.Dataset({'amplitudes': clp, 'global_concentrations': global_array,
+                                         'model_concentrations': local_array})},
+            fit_decomposition=FitDecomposition(clp=clp, matrix=local_array),
+            meta=objective.create_result_metadata(label, data, result_dataset))
+        offset += size
+    return OptimizationObjectiveResult(optimization_results=results, clp_size=len(aligned), additional_penalty=0)

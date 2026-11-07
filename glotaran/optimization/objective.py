@@ -27,10 +27,12 @@ from glotaran.io import save_dataset
 from glotaran.io.interface import SAVING_OPTIONS_DEFAULT
 from glotaran.io.interface import SavingOptions
 from glotaran.model.data_model import DataModel
+from glotaran.model.data_model import is_data_model_global
 from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import iterate_data_model_elements
 from glotaran.model.errors import GlotaranModelError
 from glotaran.optimization.data import LinkedOptimizationData
+from glotaran.optimization.data import LinkedFullOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.matrix import OptimizationMatrix
@@ -591,6 +593,18 @@ class OptimizationObjectiveResult:
 
 class OptimizationObjective:
     def __init__(self, model: ExperimentModel) -> None:
+        global_modes = [is_data_model_global(data) for data in model.datasets.values()]
+        if len(model.datasets) > 1 and any(global_modes):
+            if not all(global_modes):
+                raise ValueError("Linked full-model and ordinary datasets cannot be mixed.")
+            paired_modes = {is_data_model_single_amplitude(data) for data in model.datasets.values()}
+            if len(paired_modes) != 1:
+                raise ValueError("Linked full-model datasets must use the same composition mode.")
+            if model.clp_penalties:
+                raise ValueError("CLP area penalties are not supported for linked full models.")
+            self._data = LinkedFullOptimizationData(model)
+            self._model = model
+            return
         self._data = (
             LinkedOptimizationData.from_experiment_model(model)
             if len(model.datasets) > 1
@@ -656,6 +670,10 @@ class OptimizationObjective:
         ).residual
 
     def calculate(self) -> ArrayLike:
+        if isinstance(self._data, LinkedFullOptimizationData):
+            from glotaran.optimization.linked_full import calculate_linked_full
+
+            return calculate_linked_full(self, result=False)
         self._data.update_generated_data()
         if isinstance(self._data, OptimizationData) and self._data.is_global:
             return self.calculate_global_penalty()
@@ -760,6 +778,8 @@ class OptimizationObjective:
         if isinstance(self._data, LinkedOptimizationData):
             scale_param = self._data.scales[label]
             scale = scale_param.value if isinstance(scale_param, Parameter) else scale_param
+        elif isinstance(self._data, LinkedFullOptimizationData):
+            scale = data.dataset_scale
         else:
             scale = self._data.dataset_scale
         return OptimizationResultMetaData(
@@ -1119,6 +1139,10 @@ class OptimizationObjective:
         return result
 
     def get_result(self) -> OptimizationObjectiveResult:
+        if isinstance(self._data, LinkedFullOptimizationData):
+            from glotaran.optimization.linked_full import calculate_linked_full
+
+            return calculate_linked_full(self, result=True)
         self._data.update_generated_data()
         return (
             self.create_single_dataset_result()

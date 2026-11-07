@@ -421,6 +421,19 @@ class OptimizationData(OptimizationDataProvider):
         result_dataset["residual"] = result_dataset["residual"] / self.weight
 
 
+class LinkedFullOptimizationData:
+    """Keep independent grids for datasets sharing one full-model CLP vector."""
+
+    def __init__(self, model: ExperimentModel) -> None:
+        self.data = {
+            label: OptimizationData(dataset, scale=model.scale.get(label))
+            for label, dataset in model.datasets.items()
+        }
+
+    def update_generated_data(self) -> bool:
+        return any([data.update_generated_data() for data in self.data.values()])
+
+
 class LinkedOptimizationData(OptimizationDataProvider):
     def __init__(
         self,
