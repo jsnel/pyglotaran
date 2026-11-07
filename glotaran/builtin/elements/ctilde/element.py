@@ -16,7 +16,12 @@ from glotaran.model.errors import GlotaranModelError
 
 
 class CtildeElement(Element):
-    """A generated direct-residual concentration dataset for ``source_dataset``."""
+    """A generated direct-residual concentration dataset for ``source_dataset``.
+
+    Optional supplied auxiliary data provide the time and basis coordinates and
+    weights. Its data values are replaced with generated observations at each
+    evaluation; the supplied basis can reorder the reduced source CLP labels.
+    """
 
     type: Literal["ctilde"]
     register_as: ClassVar[str] = "ctilde"
