@@ -23,6 +23,7 @@ import xarray as xr
 
 from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.optimization.data import LinkedOptimizationData
+from glotaran.optimization.data import LinkedFullOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.matrix import OptimizationMatrix
@@ -242,6 +243,8 @@ def _calculate_linear_variance(
     clps: Mapping[str, xr.DataArray],
 ) -> dict[str, np.ndarray]:
     data = objective.data
+    if isinstance(data, LinkedFullOptimizationData):
+        return _calculate_linked_full_linear_variance(objective, clps)
     if isinstance(data, OptimizationData):
         if data.is_global:
             return _calculate_global_linear_variance(objective, clps)
@@ -249,6 +252,25 @@ def _calculate_linear_variance(
     if isinstance(data, LinkedOptimizationData):
         return _calculate_linked_linear_variance(objective, clps)
     return {label: np.zeros(clp.shape, dtype=float) for label, clp in clps.items()}
+
+
+def _calculate_linked_full_linear_variance(objective, clps):
+    """Propagate the shared linear covariance through each dataset's relations."""
+    from glotaran.optimization.linked_full import build_linked_full
+
+    datasets, aligned, matrix, data = build_linked_full(objective)
+    estimation = OptimizationEstimation.calculate(matrix, data, 'variable_projection')
+    sigma_squared = _residual_variance(estimation.residual, matrix.shape[1])
+    covariance = sigma_squared * _safe_pinv_xtx(matrix)
+    result = {}
+    for label, dataset in datasets.items():
+        indices = [aligned.index(pair) for pair in dataset.reduced_pairs]
+        reduced_covariance = covariance[np.ix_(indices, indices)]
+        variance = np.diag(dataset.expansion @ reduced_covariance @ dataset.expansion.T)
+        clp = clps[label]
+        result[label] = (np.diag(variance) if is_data_model_single_amplitude(dataset.data.model)
+                         else variance.reshape(clp.shape))
+    return result
 
 
 def _calculate_global_linear_variance(

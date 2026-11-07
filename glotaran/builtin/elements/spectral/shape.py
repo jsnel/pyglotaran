@@ -195,15 +195,18 @@ class SpectralShapeSkewedGaussianSum(SpectralShape):
             )
             raise ValueError(msg)
 
-        return sum(
+        amplitude_scale = amplitudes[0] if self.amplitude else 1.0
+        relative_amplitudes = [None, *amplitudes[1:]] if self.amplitude else amplitudes
+        component_sum = sum(
             (
                 _calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
                 for amplitude, location, width, skewness in zip(
-                    amplitudes, self.location, self.width, self.skewness, strict=True
+                    relative_amplitudes, self.location, self.width, self.skewness, strict=True
                 )
             ),
             start=np.zeros(axis.shape, dtype=float),
         )
+        return amplitude_scale * component_sum
 
 
 class SpectralShapeOne(SpectralShape):
