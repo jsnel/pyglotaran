@@ -1,0 +1,54 @@
+# scale_list port on current staging
+
+This branch adapts the author's `ism200/scale_list` endpoint `4ffd8ce6` (the
+equivalent rebased reference is `fcad091c`) to staging based on `8e725314`.
+Earlier feature-focused staging port commits were replayed and adjusted to the
+current optimizer, Project, record/export and result APIs. Their order differs
+from the author's 0.7 commits where staging dependencies required regrouping;
+linked full-model and Ctilde changes are separate later commits. Other historical
+port notes describe an earlier staging baseline, not this branch.
+
+The port includes grouped Gaussian activations, coordinate scale lists, paired
+and linked full models, CLP uncertainty for supported least-squares models,
+global parameter penalties, fit scaling, the spectral-model guide and generated
+datasets, and Ctilde/refresid. Project records retain effective fit settings and
+generated data can be recomputed from measured inputs.
+
+## Native and migrated scale semantics
+
+Staging continues to interpret element scales literally by default. The author's
+newer 0.7.5 source normalizes an explicit ordered scale list by its sum. Converted
+models that need this behavior opt in with `normalize_element_scales` and/or
+`normalize_global_element_scales`, using a complete element-to-scale mapping.
+Paired full models use positional component pairing by default. For a migrated
+model where staging resolves identical component labels in a different order,
+`align_paired_clp_labels` explicitly selects name-based pairing.
+
+## Supported boundaries
+
+Linked full models reject index-dependent global matrices, CLP constraints and
+area penalties, partially overlapping relation intervals, and chained or
+duplicate-target CLP relations. These are explicit restrictions; do not infer
+support from the ordinary linked-data or unlinked-full paths.
+
+Ctilde requires a spectral-CLP source in the same experiment, without IRF
+dispersion or spectrally varying relations. An auxiliary dataset contains one
+Ctilde element. Supplied auxiliary data provide ordered time/basis coordinates
+and weights; their values are replaced by generated regularized NNLS observations.
+Basis order may be permuted, but time coordinates must match the source in order.
+Ctilde CLP standard errors are not implemented. New Project records preserve
+string coordinate labels for recomputation checks; old records cannot
+retrospectively verify labels they did not record.
+
+## Validation snapshot
+
+At code commit `33ce20fb`, guarded serial checks reported 763 core tests passed
+with 9 xfailed, and 75 workspace validation tests passed with 1 skipped. Fresh
+common reference and staging runs executed 11 notebooks each; their 14-leaf
+semantic comparison reported 9 PASS and 5 documented EXPECTED_DIFFERENCE with no
+regressions or missing leaves. The reference was `fcad091c` (0.7.5), not the
+workspace's historical pinned 0.7.4. A 16-dataset linked-ST comparison at the
+pre-format commit `ca50e8e7` agreed to a worst fitted-data normalized RMS of
+5.144e-9 after the author's two-evaluation budget; neither fit had converged.
+The separate validation workspace retains the source hashes, manifests, memory
+guard logs, reports and report-only runtime benchmark.
