@@ -849,7 +849,7 @@ class OptimizationObjective:
         clp_size = (
             len(global_matrix.amplitude_label)
             if is_data_model_single_amplitude(self._data.model)
-            else len(matrix.amplitude_label) + len(global_matrix.amplitude_label)
+            else len(matrix.amplitude_label) * len(global_matrix.amplitude_label)
         )
         self._data.unweight_result_dataset(result_dataset)
 

@@ -166,6 +166,18 @@ def test_single_global_result_uses_experiment_nnls():
     np.testing.assert_allclose(result.fitted_data, 0, atol=1e-10)
 
 
+@pytest.mark.parametrize(('composition', 'model_count', 'global_count', 'expected'), [
+    ('cartesian', 3, 4, 12), ('cartesian', 1, 1, 1), ('paired', 3, 3, 3),
+])
+def test_single_full_model_counts_fitted_clps(composition, model_count, global_count, expected):
+    model = paired(10)
+    model.global_composition = composition
+    model.elements[0].compartments = [f'm{i}' for i in range(model_count)]
+    model.global_elements[0].compartments = [f'g{i}' for i in range(global_count)]
+    result = OptimizationObjective(ExperimentModel(datasets={'one': model})).get_result()
+    assert result.clp_size == expected
+
+
 def test_nonmatching_labels_keep_positional_pairing():
     one, two = paired(160), paired(160)
     two.global_elements[0].compartments = ['s1', 'different']
