@@ -88,7 +88,7 @@ class Scheme(BaseModel):
         )
 
     def _load_data(self, datasets: Mapping[str, xr.Dataset]) -> None:
-        from glotaran.builtin.elements.ctilde import CtildeElement
+        from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
 
         for experiment in self.experiments.values():
             for label, data_model in experiment.datasets.items():
@@ -202,7 +202,8 @@ class Scheme(BaseModel):
         step = optimization_kwargs.get("clp_standard_error_finite_difference_relative_step")
         optimization_kwargs["clp_standard_error_finite_difference_relative_step"] = (
             scheme.clp_standard_error_finite_difference_relative_step
-            if step is None else self.validate_clp_standard_error_step(step)
+            if step is None
+            else self.validate_clp_standard_error_step(step)
         )
         optimization = Optimization(
             models=list(scheme.experiments.values()),

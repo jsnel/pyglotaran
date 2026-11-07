@@ -227,7 +227,9 @@ def test_clp_standard_error_rejects_experiment_nnls_with_default_dataset_solver(
     data_model.data = simulate(data_model, test_library, parameters, axes, clp)
     with pytest.raises(ValueError, match="variable_projection"):
         Optimization(
-            models=[experiment], parameters=parameters, library=test_library,
+            models=[experiment],
+            parameters=parameters,
+            library=test_library,
             compute_clp_standard_error=True,
         )
 
@@ -266,8 +268,12 @@ def test_clp_standard_error_uses_experiment_solver_not_dataset_setting(mode: str
         datasets[label] = data_model
     experiment = ExperimentModel(datasets=datasets, residual_function="variable_projection")
     _, results, info = Optimization(
-        models=[experiment], parameters=parameters.copy(), library=test_library,
-        compute_clp_standard_error=True, verbose=False, raise_exception=True,
+        models=[experiment],
+        parameters=parameters.copy(),
+        library=test_library,
+        compute_clp_standard_error=True,
+        verbose=False,
+        raise_exception=True,
         maximum_number_function_evaluations=3,
     ).run()
     assert info.clp_standard_error_method == "linear_plus_nonlinear_propagation"

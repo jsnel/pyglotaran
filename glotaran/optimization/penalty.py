@@ -65,7 +65,10 @@ def calculate_clp_penalties(
         The clp penalty.
     """
     return np.asarray(
-        [value for _, _, _, value in _iter_penalties(matrices, estimations, global_axis, penalties)]
+        [
+            value
+            for _, _, _, value in _iter_penalties(matrices, estimations, global_axis, penalties)
+        ]
     )
 
 

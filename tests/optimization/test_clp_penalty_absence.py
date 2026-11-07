@@ -1,6 +1,9 @@
 """Equal-area penalties with missing CLPs follow the author reference."""
 
+from __future__ import annotations
+
 import warnings
+from typing import Any
 
 import numpy as np
 import pytest
@@ -12,13 +15,13 @@ from glotaran.optimization.penalty import calculate_clp_penalties
 from glotaran.optimization.penalty import calculate_clp_penalty_diagnostics
 
 
-def _inputs(labels, values):
+def _inputs(labels: list[str], values: list[float]):
     matrix = OptimizationMatrix(labels, np.eye(len(labels)))
     estimation = OptimizationEstimation(np.asarray(values, dtype=float), np.empty(0))
     return [matrix, matrix], [estimation, estimation], np.asarray([0.0, 1.0])
 
 
-def _penalty(source="a", target="b", **kwargs):
+def _penalty(source: str = "a", target: str = "b", **kwargs: Any):
     return EqualAreaPenalty(
         type="equal_area", source=source, target=target, parameter=2.0, weight=3.0, **kwargs
     )
@@ -29,7 +32,9 @@ def _penalty(source="a", target="b", **kwargs):
     ("labels", "values", "message"),
     [(["a"], [4.0], "target clp b"), (["b"], [2.0], "source clp a")],
 )
-def test_missing_one_clp_skips_penalty_and_diagnostic(labels, values, message, relative):
+def test_missing_one_clp_skips_penalty_and_diagnostic(
+    labels: list[str], values: list[float], message: str, relative: bool
+):
     matrices, estimations, axis = _inputs(labels, values)
     penalty = _penalty(relative=relative)
     with pytest.warns(UserWarning, match=message):
@@ -57,7 +62,9 @@ def test_out_of_range_interval_is_skipped_and_other_diagnostics_remain_aligned()
             calculate_clp_penalties(matrices, estimations, axis, [skipped, valid]), [12.0]
         )
     with pytest.warns(UserWarning, match="source clp a"):
-        diagnostics = calculate_clp_penalty_diagnostics(matrices, estimations, axis, [skipped, valid])
+        diagnostics = calculate_clp_penalty_diagnostics(
+            matrices, estimations, axis, [skipped, valid]
+        )
     assert len(diagnostics) == 1
     assert diagnostics[0].source_area == 8.0
     assert diagnostics[0].target_area == 2.0

@@ -102,17 +102,32 @@ def test_parameter_penalty_and_x_scale_record_export_and_recompute(
 ):
     """Project and Scheme use the same penalties, and record/export can recompute them."""
     spec = copy.deepcopy(SCHEME_DICT)
-    spec["parameter_penalties"] = [{
-        "type": "equal", "source": "rates.species_1", "target": "rates.species_2",
-        "parameter": 1., "weight": 0.3,
-    }]
+    spec["parameter_penalties"] = [
+        {
+            "type": "equal",
+            "source": "rates.species_1",
+            "target": "rates.species_2",
+            "parameter": 1.0,
+            "weight": 0.3,
+        }
+    ]
     spec["x_scale"] = "jac"
     scheme = Scheme.from_dict(spec)
-    direct = scheme.optimize(PARAMETERS, {LABEL: data}, maximum_number_function_evaluations=2,
-                             verbose=False, raise_exception=True)
-    recorded = project.optimize(scheme, PARAMETERS, {LABEL: data},
-                                maximum_number_function_evaluations=2,
-                                verbose=False, raise_exception=True)
+    direct = scheme.optimize(
+        PARAMETERS,
+        {LABEL: data},
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
+    )
+    recorded = project.optimize(
+        scheme,
+        PARAMETERS,
+        {LABEL: data},
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
+    )
     assert recorded.optimization_info.cost == direct.optimization_info.cost
     assert recorded.optimization_info.additional_parameter_penalty == (
         direct.optimization_info.additional_parameter_penalty
@@ -143,10 +158,16 @@ def test_project_uses_scheme_clp_standard_error_settings(project: Project, data:
     spec["compute_clp_standard_error"] = True
     spec["clp_standard_error_finite_difference_relative_step"] = 2e-6
     result = project.optimize(
-        Scheme.from_dict(spec), PARAMETERS, {LABEL: data},
-        maximum_number_function_evaluations=2, verbose=False, raise_exception=True,
+        Scheme.from_dict(spec),
+        PARAMETERS,
+        {LABEL: data},
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
     )
-    assert result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert (
+        result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    )
     assert result.optimization_info.clp_standard_error_finite_difference_relative_step == 2e-6
     assert result.optimization_results[LABEL].fit_decomposition.clp_standard_error is not None
 
@@ -155,13 +176,20 @@ def test_project_clp_standard_error_overrides_are_recorded(project: Project, dat
     """Per-fit overrides survive recording, export and dry-run recomputation."""
     scheme = Scheme.from_dict(SCHEME_DICT)
     result = project.optimize(
-        scheme, PARAMETERS, {LABEL: data}, compute_clp_standard_error=True,
+        scheme,
+        PARAMETERS,
+        {LABEL: data},
+        compute_clp_standard_error=True,
         clp_standard_error_finite_difference_relative_step=2e-6,
-        maximum_number_function_evaluations=2, verbose=False, raise_exception=True,
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
     )
     assert result.optimizer_settings.compute_clp_standard_error is True
     assert result.optimizer_settings.clp_standard_error_finite_difference_relative_step == 2e-6
-    assert result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert (
+        result.optimization_info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    )
     assert result.record is not None
     record = load_dict(result.record.path / "record.yml", is_file=True)
     assert record["optimizer"]["compute_clp_standard_error"] is True
@@ -171,7 +199,9 @@ def test_project_clp_standard_error_overrides_are_recorded(project: Project, dat
     exported = project.export(result, "clp-uncertainty")
     restored = load_result(exported)
     assert restored.optimizer_settings == result.optimizer_settings
-    assert project.recompute(exported, {LABEL: data}).optimizer_settings == result.optimizer_settings
+    assert (
+        project.recompute(exported, {LABEL: data}).optimizer_settings == result.optimizer_settings
+    )
 
 
 def test_recompute_by_id_and_path_writes_no_record(

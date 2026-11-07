@@ -121,8 +121,8 @@ class Optimization:
         issues = [issue for experiment in models for issue in experiment.get_issues(parameters)]
         if len(issues) > 0:
             raise GlotaranModelIssues(issues)
-        from glotaran.builtin.elements.ctilde import CtildeElement
-        from glotaran.optimization.ctilde import CtildeObjective
+        from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
+        from glotaran.optimization.ctilde import CtildeObjective  # noqa: PLC0415
 
         if compute_clp_standard_error and any(
             isinstance(element, CtildeElement)
@@ -130,7 +130,8 @@ class Optimization:
             for dataset in experiment.datasets.values()
             for element in dataset.elements
         ):
-            raise ValueError("CLP standard errors for Ctilde objectives are not supported.")
+            msg = "CLP standard errors for Ctilde objectives are not supported."
+            raise ValueError(msg)
         self._objectives = [
             CtildeObjective(experiment)
             if any(
