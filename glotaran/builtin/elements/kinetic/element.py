@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Literal
+from typing import cast
 
 import numpy as np
 import xarray as xr
@@ -20,6 +21,7 @@ from glotaran.model.element import ExtendableElement
 from glotaran.model.item import ParameterType  # noqa:F401
 
 if TYPE_CHECKING:
+    from glotaran.builtin.items.activation.gaussian import GaussianActivationParameters
     from glotaran.model.data_model import DataModel
     from glotaran.typing.types import ArrayLike
 
@@ -140,35 +142,34 @@ class KineticElement(ExtendableElement, Kinetic):
         rates: ArrayLike,
     ) -> ArrayLike:
         parameters = activation.parameters(global_axis)
-        matrix_shape = (model_axis.size, len(compartments))
+        matrix_shape: tuple[int, ...] = (model_axis.size, len(compartments))
         index_dependent = any(isinstance(p, list) for p in parameters)
         if index_dependent:
-            matrix_shape = (global_axis.size, *matrix_shape)  # type:ignore[assignment]
+            matrix_shape = (global_axis.size, *matrix_shape)
         matrix = np.zeros(matrix_shape, dtype=np.float64)
-        scales = (
-            np.array([[p.scale for p in ps] for ps in parameters])
-            if index_dependent
-            else np.array([p.scale for p in parameters])
-        )  # type:ignore[union-attr]
         if index_dependent:
+            dependent = cast("list[list[GaussianActivationParameters]]", parameters)
+            scales = np.array([[p.scale for p in ps] for ps in dependent])
             calculate_matrix_gaussian_activation(
                 matrix,
                 rates,
                 model_axis,
-                np.array([[p.center for p in ps] for ps in parameters]),
-                np.array([[p.width for p in ps] for ps in parameters]),
+                np.array([[p.center for p in ps] for ps in dependent]),
+                np.array([[p.width for p in ps] for ps in dependent]),
                 scales,
-                parameters[0][0].backsweep_period,
+                dependent[0][0].backsweep_period,
             )
         else:
+            independent = cast("list[GaussianActivationParameters]", parameters)
+            scales = np.array([p.scale for p in independent])
             calculate_matrix_gaussian_activation_on_index(
                 matrix,
                 rates,
                 model_axis,
-                np.array([p.center for p in parameters]),  # type:ignore[attr-defined]
-                np.array([p.width for p in parameters]),  # type:ignore[attr-defined]
+                np.array([p.center for p in independent]),
+                np.array([p.width for p in independent]),
                 scales,
-                parameters[0].backsweep_period,  # type:ignore[attr-defined]
+                independent[0].backsweep_period,
             )
         if activation.normalize and not isinstance(activation, MultiMultiGaussianActivation):
             if index_dependent:

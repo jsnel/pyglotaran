@@ -6,6 +6,7 @@ from dataclasses import field
 from dataclasses import replace
 from itertools import chain
 from typing import TYPE_CHECKING
+from typing import cast
 
 import numpy as np
 import xarray as xr
@@ -131,11 +132,15 @@ class OptimizationMatrix:
         )
         scales = model.global_element_scale if global_matrix else model.element_scale
         if normalize and scales is not None:
-            labels = {element.label for _, element in entries}
+            # Optimization matrices are built from resolved data models, so
+            # element references have already become concrete elements.
+            labels = {cast("Element", element).label for _, element in entries}
             if set(scales) != labels:
                 msg = "Normalized element scales must name every element exactly once"
                 raise ValueError(msg)
-            values = [float(getattr(scale, "value", scale)) for scale, _ in entries]
+            values = [
+                float(cast("float | str", getattr(scale, "value", scale))) for scale, _ in entries
+            ]
             scale_sum = sum(values)
             if not np.isfinite(scale_sum) or scale_sum == 0:
                 msg = "Element scale sum must be finite and nonzero"

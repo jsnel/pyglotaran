@@ -22,11 +22,11 @@ def test_duplicate_labels_after_whitespace_normalization():
 
 
 def test_unknown_columns_warn_and_derived_columns_are_ignored():
-    frame = pd.DataFrame({"label": ["a"], "value": [2], "T-value": [4], "vlaue": [3]})
-    with pytest.warns(UserWarning, match="vlaue"):
+    frame = pd.DataFrame({"label": ["a"], "value": [2], "T-value": [4], "unknown_column": [3]})
+    with pytest.warns(UserWarning, match="unknown_column"):
         parameters = Parameters.from_dataframe(frame)
     assert parameters.get("a").value == 2
-    assert "vlaue" in frame  # Loading does not mutate the caller's table.
+    assert "unknown_column" in frame  # Loading does not mutate the caller's table.
 
 
 @pytest.mark.parametrize("suffix", ["csv", "tsv", "xlsx", "ods"])

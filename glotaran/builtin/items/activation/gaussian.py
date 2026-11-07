@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from dataclasses import replace
 from typing import TYPE_CHECKING
 from typing import Literal
+from typing import cast
 from typing import overload
 
 import numpy as np
@@ -215,7 +216,12 @@ class MultiGaussianActivation(Activation):
             return None
         if any(value is None for value in values):
             raise GlotaranUserError(SkewedGaussianDispersionIssue().to_string())
-        return tuple(float(value) for value in values)  # type: ignore[arg-type]
+        amplitude, location, width, skewness = values
+        assert amplitude is not None
+        assert location is not None
+        assert width is not None
+        assert skewness is not None
+        return (float(amplitude), float(location), float(width), float(skewness))
 
     def _dispersion_axis_value(self, value: float) -> float:
         return 1e3 / value if self._uses_wavenumber else value
@@ -304,11 +310,11 @@ class MultiGaussianActivation(Activation):
         )
 
     @overload
-    def parameters(
-        self, global_axis: None = None
-    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
+    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
     @overload
-    def parameters(self, global_axis: ArrayLike) -> list[list[GaussianActivationParameters]]: ...
+    def parameters(
+        self, global_axis: ArrayLike
+    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
 
     def parameters(  # noqa: C901, PLR0912
         self, global_axis: ArrayLike | None = None
@@ -383,7 +389,7 @@ class MultiGaussianActivation(Activation):
     def calculate_function(self, axis: ArrayLike) -> ArrayLike:
         return np.sum(
             [
-                p.scale * np.exp(-1 * (axis - p.center) ** 2 / (2 * p.width**2))  # type:ignore[union-attr]
+                p.scale * np.exp(-1 * (axis - p.center) ** 2 / (2 * p.width**2))
                 for p in self.parameters()
             ],
             axis=0,
@@ -405,9 +411,9 @@ class MultiMultiGaussianActivation(MultiGaussianActivation):
     """
 
     type: Literal["multi-multi-gaussian"]  # type:ignore[assignment]
-    center: list[list[ParameterType]]
-    width: list[list[ParameterType]]
-    scale: list[list[ParameterType]] | None = None
+    center: list[list[ParameterType]]  # type:ignore[assignment]
+    width: list[list[ParameterType]]  # type:ignore[assignment]
+    scale: list[list[ParameterType]] | None = None  # type:ignore[assignment]
     normalize_area: bool = Attribute(
         default=True, description="Normalize the total Gaussian area when enabled."
     )
@@ -461,6 +467,13 @@ class MultiMultiGaussianActivation(MultiGaussianActivation):
                 p.scale *= factor
         return flat
 
+    @overload
+    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
+    @overload
+    def parameters(
+        self, global_axis: ArrayLike
+    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
+
     def parameters(
         self, global_axis: ArrayLike | None = None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
@@ -503,6 +516,13 @@ class ConvMultiMultiGaussianActivation(MultiMultiGaussianActivation):
     def is_index_dependent(self) -> bool:
         return True
 
+    @overload
+    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
+    @overload
+    def parameters(
+        self, global_axis: ArrayLike
+    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
+
     def parameters(
         self, global_axis: ArrayLike | None = None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
@@ -510,18 +530,21 @@ class ConvMultiMultiGaussianActivation(MultiMultiGaussianActivation):
             return self._flatten_parameters()
         parameters = super().parameters(global_axis)
         if parameters and not isinstance(parameters[0], list):
-            parameters = [[replace(parameter) for parameter in parameters] for _ in global_axis]
+            flat = cast("list[GaussianActivationParameters]", parameters)
+            grouped = [[replace(parameter) for parameter in flat] for _ in global_axis]
+        else:
+            grouped = cast("list[list[GaussianActivationParameters]]", parameters)
         if global_axis.size != len(self.convwidth):
             msg = (
                 f"The number of convolution widths({len(self.convwidth)}) does not match "
                 f"the size of the global axis({global_axis.size})."
             )
             raise GlotaranUserError(msg)
-        for ps, convwidth in zip(parameters, self.convwidth, strict=True):
+        for ps, convwidth in zip(grouped, self.convwidth, strict=True):
             width = float(convwidth)
             for p in ps:
                 p.width = float(np.sqrt(width**2 + p.width**2))
-        return parameters
+        return grouped
 
 
 class NormConvMultiMultiGaussianActivation(ConvMultiMultiGaussianActivation):
@@ -529,13 +552,20 @@ class NormConvMultiMultiGaussianActivation(ConvMultiMultiGaussianActivation):
 
     type: Literal["norm-conv-multi-multi-gaussian"]  # type:ignore[assignment]
 
+    @overload
+    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
+    @overload
+    def parameters(
+        self, global_axis: ArrayLike
+    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
+
     def parameters(
         self, global_axis: ArrayLike | None = None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
         result = super().parameters(global_axis)
         if global_axis is None or not self.normalize_area or not self.normalize:
             return result
-        for parameters in result:
+        for parameters in cast("list[list[GaussianActivationParameters]]", result):
             total_area = float(
                 np.sum([p.scale * abs(p.width) for p in parameters]) * np.sqrt(2 * np.pi)
             )

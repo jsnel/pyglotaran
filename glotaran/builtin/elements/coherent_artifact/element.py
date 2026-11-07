@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Literal
+from typing import cast
 
 import numba as nb
 import numpy as np
@@ -15,6 +16,7 @@ from glotaran.model.errors import GlotaranModelError
 from glotaran.model.item import ParameterType  # noqa: TC001
 
 if TYPE_CHECKING:
+    from glotaran.builtin.items.activation import GaussianActivationParameters
     from glotaran.model.data_model import DataModel
     from glotaran.typing.types import ArrayLike
 
@@ -55,26 +57,28 @@ class CoherentArtifactElement(Element):
 
         parameters = activation.parameters(global_axis)
 
-        matrix_shape = (model_axis.size, self.order)
+        matrix_shape: tuple[int, ...] = (model_axis.size, self.order)
         index_dependent = any(isinstance(p, list) for p in parameters)
         if index_dependent:
-            matrix_shape = (global_axis.size, *matrix_shape)  # type:ignore[assignment]
+            matrix_shape = (global_axis.size, *matrix_shape)
         matrix = np.zeros(matrix_shape, dtype=np.float64)
         if index_dependent:
+            dependent = cast("list[list[GaussianActivationParameters]]", parameters)
             _calculate_coherent_artifact_matrix(
                 matrix,
-                np.array([ps[0].center for ps in parameters]),
-                np.array([self.width or ps[0].width for ps in parameters]),
+                np.array([ps[0].center for ps in dependent]),
+                np.array([self.width or ps[0].width for ps in dependent]),
                 global_axis.size,
                 model_axis,
                 self.order,
             )
 
         else:
+            independent = cast("list[GaussianActivationParameters]", parameters)
             _calculate_coherent_artifact_matrix_on_index(
                 matrix,
-                parameters[0].center,  # type:ignore[attr-defined]
-                self.width or parameters[0].width,  # type:ignore[attr-defined]
+                independent[0].center,
+                self.width or independent[0].width,
                 model_axis,
                 self.order,
             )

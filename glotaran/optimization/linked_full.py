@@ -159,6 +159,7 @@ def calculate_linked_full(
     offset = 0
     for label, dataset in datasets.items():
         data, local, global_matrix = dataset.data, dataset.local, dataset.global_matrix
+        assert data.flat_data is not None
         size = data.flat_data.size
         values = (
             dataset.expansion

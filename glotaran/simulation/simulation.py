@@ -74,6 +74,7 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
     global_dimension = next(dim for dim in coordinates if dim != model_dimension)
     global_axis = coordinates[global_dimension]
 
+    global_matrix: OptimizationMatrix | None = None
     if clp is None:
         if not model.global_elements:
             msg = "Cannot simulate dataset without global megacomplexes if no clp are provided."

@@ -16,7 +16,7 @@ from glotaran.io.prepare_dataset import prepare_time_trace_dataset
 
 _HEADER_SIZE = 64
 _MAGIC = b"IM"
-_FILE_TYPE_TO_DTYPE = {
+_FILE_TYPE_TO_DTYPE: dict[int, np.dtype] = {
     0: np.dtype("<u1"),
     2: np.dtype("<u2"),
     3: np.dtype("<u4"),

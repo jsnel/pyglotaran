@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import cast
 
 import numpy as np
 import xarray as xr
@@ -53,7 +54,7 @@ class CtildeObjective:
                     raise GlotaranModelError(msg)
                 self._auxiliary[label] = (data_model, generators[0])
                 if data_model.data is not None:
-                    self._supplied[label] = data_model.data.copy(deep=True)
+                    self._supplied[label] = cast("xr.Dataset", data_model.data).copy(deep=True)
             else:
                 measured[label] = data_model
         if not measured:
@@ -83,13 +84,13 @@ class CtildeObjective:
 
     @property
     def data(self) -> OptimizationData | LinkedOptimizationData:
-        return self._inner.data
+        return cast("OptimizationData | LinkedOptimizationData", self._inner.data)
 
     def _calculate_auxiliary(
         self, label: str, data_model: DataModel, element: CtildeElement, clp: xr.DataArray
     ) -> tuple[xr.Dataset, xr.DataArray, xr.DataArray, OptimizationData, np.ndarray, np.ndarray]:
         source_model = self._model.datasets[element.source_dataset]
-        source_data = source_model.data
+        source_data = cast("xr.Dataset", source_model.data)
         time = np.asarray(source_data["time"])
         spectral = np.asarray(source_data["spectral"])
         source_matrix = OptimizationMatrix.from_data_model(source_model, spectral, time, None)
@@ -174,7 +175,7 @@ class CtildeObjective:
         estimations = self._inner.resolve_estimations(
             matrices, reduced, self._inner.calculate_estimations(reduced)
         )
-        provider = self._inner.data
+        provider = self.data
         labels = {element.source_dataset for _, element in self._auxiliary.values()}
         if isinstance(provider, LinkedOptimizationData):
             return {
@@ -217,7 +218,10 @@ class CtildeObjective:
         for label, (model, element) in self._auxiliary.items():
             source_result = result.optimization_results[element.source_dataset]
             observed, ctilde, etilde, data, residual, weighted = self._calculate_auxiliary(
-                label, model, element, source_result.fit_decomposition.clp
+                label,
+                model,
+                element,
+                cast("FitDecomposition", source_result.fit_decomposition).clp,
             )
             basis = observed["basis"]
             residual_array = xr.DataArray(

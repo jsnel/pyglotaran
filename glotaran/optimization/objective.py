@@ -593,6 +593,7 @@ class OptimizationObjectiveResult:
 
 class OptimizationObjective:
     def __init__(self, model: ExperimentModel) -> None:
+        self._data: OptimizationData | LinkedOptimizationData | LinkedFullOptimizationData
         global_modes = [is_data_model_global(data) for data in model.datasets.values()]
         # A single paired full model needs the same relation reduction as a
         # linked group. The ordinary single-dataset path does not reduce the
@@ -630,7 +631,7 @@ class OptimizationObjective:
         self._model = model
 
     @property
-    def data(self) -> OptimizationData | LinkedOptimizationData:
+    def data(self) -> OptimizationData | LinkedOptimizationData | LinkedFullOptimizationData:
         """Prepared optimization data used by this objective."""
         return self._data
 
@@ -642,14 +643,16 @@ class OptimizationObjective:
     def calculate_matrices(self) -> list[OptimizationMatrix]:
         if isinstance(self._data, OptimizationData):
             return OptimizationMatrix.from_data(self._data).as_global_list(self._data.global_axis)
-        return OptimizationMatrix.from_linked_data(self._data)
+        return OptimizationMatrix.from_linked_data(cast("LinkedOptimizationData", self._data))
 
     def calculate_reduced_matrices(
         self, matrices: list[OptimizationMatrix]
     ) -> list[OptimizationMatrix]:
         return [
             matrices[i].reduce(index, self._model.clp_relations, copy=True)
-            for i, index in enumerate(self._data.global_axis)
+            for i, index in enumerate(
+                cast("OptimizationData | LinkedOptimizationData", self._data).global_axis
+            )
         ]
 
     def calculate_estimations(
@@ -657,7 +660,11 @@ class OptimizationObjective:
     ) -> list[OptimizationEstimation]:
         return [
             OptimizationEstimation.calculate(matrix.array, data, self._model.residual_function)
-            for matrix, data in zip(reduced_matrices, self._data.data_slices, strict=True)
+            for matrix, data in zip(
+                reduced_matrices,
+                cast("OptimizationData | LinkedOptimizationData", self._data).data_slices,
+                strict=True,
+            )
         ]
 
     def resolve_estimations(
@@ -669,7 +676,11 @@ class OptimizationObjective:
         return [
             e.resolve_clp(m.clp_axis, r.clp_axis, i, self._model.clp_relations)
             for e, m, r, i in zip(
-                estimations, matrices, reduced_matrices, self._data.global_axis, strict=True
+                estimations,
+                matrices,
+                reduced_matrices,
+                cast("OptimizationData | LinkedOptimizationData", self._data).global_axis,
+                strict=True,
             )
         ]
 
@@ -687,7 +698,7 @@ class OptimizationObjective:
         if isinstance(self._data, LinkedFullOptimizationData):
             from glotaran.optimization.linked_full import calculate_linked_full  # noqa: PLC0415
 
-            return calculate_linked_full(self, result=False)
+            return cast("ArrayLike", calculate_linked_full(self, result=False))
         self._data.update_generated_data()
         if isinstance(self._data, OptimizationData) and self._data.is_global:
             return self.calculate_global_penalty()
@@ -753,7 +764,10 @@ class OptimizationObjective:
             matrices, reduced, self.calculate_estimations(reduced)
         )
         return calculate_clp_penalty_diagnostics(
-            matrices, estimations, self._data.global_axis, self._model.clp_penalties
+            matrices,
+            estimations,
+            cast("OptimizationData | LinkedOptimizationData", self._data).global_axis,
+            self._model.clp_penalties,
         )
 
     def create_result_dataset(self, data: OptimizationData) -> xr.Dataset:
@@ -1004,7 +1018,7 @@ class OptimizationObjective:
         label: str,
         estimated_amplitude_axes: list[list[str]],
         estimated_amplitudes: list[OptimizationEstimation],
-        amplitude_axis: ArrayLike,
+        amplitude_axis: ArrayLike | list[str],
         global_dim: str,
         global_axis: ArrayLike,
     ) -> xr.DataArray:
@@ -1156,7 +1170,7 @@ class OptimizationObjective:
         if isinstance(self._data, LinkedFullOptimizationData):
             from glotaran.optimization.linked_full import calculate_linked_full  # noqa: PLC0415
 
-            return calculate_linked_full(self, result=True)
+            return cast("OptimizationObjectiveResult", calculate_linked_full(self, result=True))
         self._data.update_generated_data()
         return (
             self.create_single_dataset_result()
