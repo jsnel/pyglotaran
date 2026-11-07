@@ -60,11 +60,6 @@ class CtildeObjective:
                 raise GlotaranModelError(
                     "Ctilde source must use a spectral CLP model, not a full model."
                 )
-            if source.element_scale and not hasattr(source, "normalize_element_scales"):
-                raise GlotaranModelError(
-                    "Ctilde source element_scale requires the ordinary-model scale "
-                    "normalization support."
-                )
             if not isinstance(source.data, xr.Dataset) or not {"time", "spectral"}.issubset(
                 source.data["data"].dims
             ):

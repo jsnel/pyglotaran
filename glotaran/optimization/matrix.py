@@ -123,9 +123,23 @@ class OptimizationMatrix:
         if global_matrix:
             model_axis, global_axis = global_axis, model_axis
 
+        entries = list(element_iterator(model))
+        normalize = (
+            model.normalize_global_element_scales if global_matrix else model.normalize_element_scales
+        )
+        scales = model.global_element_scale if global_matrix else model.element_scale
+        if normalize and scales is not None:
+            labels = {element.label for _, element in entries}
+            if set(scales) != labels:
+                raise ValueError('Normalized element scales must name every element exactly once')
+            values = [float(getattr(scale, 'value', scale)) for scale, _ in entries]
+            scale_sum = sum(values)
+            if not np.isfinite(scale_sum) or scale_sum == 0:
+                raise ValueError('Element scale sum must be finite and nonzero')
+            entries = [(value / scale_sum, element) for value, (_, element) in zip(values, entries, strict=True)]
         matrices = [
             cls.from_element(scale, element, model, global_axis, model_axis)  # type:ignore[arg-type]
-            for scale, element in element_iterator(model)
+            for scale, element in entries
         ]
         matrix = matrices[0] if len(matrices) == 1 else cls.combine(matrices)
         if weight is not None:

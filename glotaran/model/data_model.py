@@ -188,6 +188,7 @@ class DataModel(Item):
         validator=validate_elements,
     )
     element_scale: dict[str, ParameterType] | None = None
+    normalize_element_scales: bool = False
     scale_list: list[ParameterType] | None = Attribute(
         default=None,
         description=(
@@ -215,6 +216,7 @@ class DataModel(Item):
         validator=validate_global_elements,
     )
     global_element_scale: dict[str, ParameterType] | None = None
+    normalize_global_element_scales: bool = False
     residual_function: Literal["variable_projection", "non_negative_least_squares"] = Attribute(
         default="variable_projection", description="The residual function to use."
     )
