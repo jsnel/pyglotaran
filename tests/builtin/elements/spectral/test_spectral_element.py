@@ -144,7 +144,7 @@ def test_spectral(shape: str):
     assert "concentrations" in element_result
 
 
-def test_skewed_gaussian_sum_shape_sums_components():
+def test_skewed_gaussian_sum_uses_first_amplitude_as_shared_scale():
     axis = np.array([640.0, 650.0, 660.0])
     shape = SpectralShapeSkewedGaussianSum(
         type="skewed-gaussian-sum",
@@ -162,7 +162,7 @@ def test_skewed_gaussian_sum_shape_sums_components():
     ).calculate(axis)
     second = SpectralShapeSkewedGaussian(
         type="skewed-gaussian",
-        amplitude=3.0,
+        amplitude=6.0,
         location=660.0,
         width=10.0,
         skewness=0.5,
