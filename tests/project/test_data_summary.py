@@ -75,6 +75,21 @@ def test_changes_are_reported(dataset: xr.Dataset):
     ]
 
 
+def test_string_coordinate_labels_are_compared_and_legacy_summaries_remain_readable():
+    data = xr.Dataset(
+        {"data": (("time", "basis"), np.ones((2, 2)))},
+        coords={"time": [0.0, 1.0], "basis": ["a", "b"]},
+    )
+    summary = summarize_data(data)
+    assert summary["coordinate_labels"]["basis"] == ["a", "b"]
+    reversed_basis = data.assign_coords(basis=["b", "a"])
+    assert compare_data_summaries("aux", summary, summarize_data(reversed_basis)) == [
+        "aux: basis coordinate labels changed"
+    ]
+    legacy_summary = {key: value for key, value in summary.items() if key != "coordinate_labels"}
+    assert compare_data_summaries("aux", legacy_summary, summarize_data(data)) == []
+
+
 def test_data_source_path(dataset: xr.Dataset, tmp_path: Path):
     record_folder = tmp_path / "results" / "2026-10-04_14-28-05"
     assert data_source_path(dataset, record_folder) is None
