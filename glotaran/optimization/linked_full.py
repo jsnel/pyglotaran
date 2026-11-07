@@ -39,13 +39,8 @@ def _prepare_dataset(data: OptimizationData, relations) -> FullDataset:
     paired = is_data_model_single_amplitude(data.model)
     if paired and len(global_matrix.clp_axis) != len(local.clp_axis):
         raise ValueError('Single-amplitude models require equal component counts')
-    # Staging may resolve kinetic labels in another order than the reference.
-    # When both axes have the same distinct labels, pair matching names; otherwise
-    # retain the author's positional pairing of the two distinct axes.
-    if paired and (len(set(global_matrix.clp_axis)) == len(global_matrix.clp_axis)
-                   and set(global_matrix.clp_axis) == set(local.clp_axis)):
-        order = [global_matrix.clp_axis.index(label) for label in local.clp_axis]
-        global_matrix = OptimizationMatrix(list(local.clp_axis), global_matrix.array[:, order])
+    if paired:
+        global_matrix = OptimizationMatrix.align_paired_global(data.model, local, global_matrix)
     pairs = (list(zip(global_matrix.clp_axis, local.clp_axis, strict=True)) if paired else
              [(g, m) for g in global_matrix.clp_axis for m in local.clp_axis])
     if len(set(pairs)) != len(pairs):

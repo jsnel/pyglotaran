@@ -110,6 +110,8 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
         if model.global_elements
         else None
     )
+    if is_data_model_single_amplitude(model) and global_matrix is not None:
+        global_matrix = OptimizationMatrix.align_paired_global(model, matrix, global_matrix)
     if model.scale_list is not None:
         if len(model.scale_list) != global_axis.size:
             msg = (

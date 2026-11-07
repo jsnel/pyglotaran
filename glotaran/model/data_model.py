@@ -210,6 +210,13 @@ class DataModel(Item):
             "'paired' fits matching columns only."
         ),
     )
+    align_paired_clp_labels: bool = Attribute(
+        default=False,
+        description=(
+            "Align paired global columns to matching model labels before pairing. "
+            "By default, paired columns follow their existing positional order."
+        ),
+    )
     global_elements: list[Element | str] | None = Attribute(
         default=None,
         description="The global elements contributing to this dataset.",

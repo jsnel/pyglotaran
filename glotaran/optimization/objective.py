@@ -820,7 +820,7 @@ class OptimizationObjective:
         estimation = OptimizationEstimation.calculate(
             full_matrix.array,
             self._data.flat_data,
-            self._data.model.residual_function,
+            self._model.residual_function,
         )
         if is_data_model_single_amplitude(self._data.model):
             if len(global_matrix.amplitude_label) != len(matrix.amplitude_label):
