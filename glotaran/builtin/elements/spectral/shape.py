@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from typing import cast
 
 import numpy as np
 
@@ -206,7 +207,7 @@ class SpectralShapeSkewedGaussianSum(SpectralShape):
             ),
             start=np.zeros(axis.shape, dtype=float),
         )
-        return amplitude_scale * component_sum
+        return cast("np.ndarray", amplitude_scale * component_sum)
 
 
 class SpectralShapeOne(SpectralShape):

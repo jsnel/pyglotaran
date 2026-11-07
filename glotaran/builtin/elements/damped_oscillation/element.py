@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Literal
+from typing import cast
 
 import numpy as np
 import xarray as xr
@@ -24,6 +25,7 @@ from glotaran.model.item import Item
 from glotaran.model.item import ParameterType
 
 if TYPE_CHECKING:
+    from glotaran.builtin.items.activation import GaussianActivationParameters
     from glotaran.typing.types import ArrayLike
 
 
@@ -90,7 +92,7 @@ class DampedOscillationElement(Element):
                         inputs,
                         frequencies,
                         rates,
-                        parameters,
+                        cast("list[list[GaussianActivationParameters]]", parameters),
                         model_axis,
                     )
                 else:
@@ -99,7 +101,7 @@ class DampedOscillationElement(Element):
                         inputs,
                         frequencies,
                         rates,
-                        parameters,  # type:ignore[arg-type]
+                        cast("list[GaussianActivationParameters]", parameters),
                         model_axis,
                     )
             else:

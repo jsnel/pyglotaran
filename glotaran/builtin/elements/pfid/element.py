@@ -61,7 +61,10 @@ class PFIDElement(Element):
             frequencies *= model.spectral_axis_scale
 
         if model.activation.is_index_dependent():
-            parameters = model.activation.parameters(global_axis)
+            parameters = cast(
+                "list[list[GaussianActivationParameters]]",
+                model.activation.parameters(global_axis),
+            )
         else:
             activation_parameters = cast(
                 "list[GaussianActivationParameters]", model.activation.parameters()

@@ -4,6 +4,7 @@ from collections import ChainMap
 from collections import Counter
 from typing import TYPE_CHECKING
 from typing import Literal
+from typing import cast
 from warnings import warn
 
 import numpy as np
@@ -348,7 +349,15 @@ class Optimization:
         covariance = (
             optimization_info.root_mean_square_error**2 * optimization_info.covariance_matrix
         )
-        for objective, objective_result in zip(self._objectives, results, strict=True):
+        for raw_objective, objective_result in zip(self._objectives, results, strict=True):
+            # Ctilde objectives are rejected when CLP uncertainty is requested.
+            objective = cast("OptimizationObjective", raw_objective)
+
+            def evaluate_at(
+                candidate: Parameters, current_objective: OptimizationObjective = objective
+            ) -> dict[str, OptimizationResult]:
+                return self._evaluate_objective_at(current_objective, candidate)
+
             standard_errors = calculate_clp_standard_error(
                 optimization_objective=objective,
                 parameters=self._parameters,
@@ -356,9 +365,7 @@ class Optimization:
                 covariance_matrix=covariance,
                 settings=self._clp_standard_error_settings,
                 base_results=objective_result.optimization_results,
-                evaluate_at=lambda candidate, current_objective=objective: (
-                    self._evaluate_objective_at(current_objective, candidate)
-                ),
+                evaluate_at=evaluate_at,
             )
             for label, error in standard_errors.items():
                 result = objective_result.optimization_results[label]

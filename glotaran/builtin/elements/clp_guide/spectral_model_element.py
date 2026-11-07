@@ -16,9 +16,10 @@ from glotaran.builtin.elements.spectral.shape import SpectralShape  # noqa: TC00
 from glotaran.model.element import Element
 
 if TYPE_CHECKING:
+    from typing import Self
+
     from glotaran.model.data_model import DataModel
     from glotaran.typing.types import ArrayLike
-    from glotaran.typing.types import Self
 
 
 class SpectralModelClpGuideElement(Element):

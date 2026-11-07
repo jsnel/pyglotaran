@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Literal
+from typing import cast
 
 import numpy as np
 import xarray as xr
@@ -27,7 +28,7 @@ class CtildeElement(Element):
     evaluation; the supplied basis can reorder the reduced source CLP labels.
     """
 
-    type: Literal["ctilde"]
+    type: Literal["ctilde"]  # type:ignore[assignment]
     register_as: ClassVar[str] = "ctilde"
     is_exclusive: ClassVar[bool] = True
     dimension: str = "time"
@@ -80,7 +81,7 @@ class CtildeElement(Element):
         if source_matrix is None:
             msg = "Ctilde requires its source kinetic matrix."
             raise GlotaranModelError(msg)
-        labels, values = source_matrix
+        labels, values = cast("tuple[list[str], np.ndarray]", source_matrix)
         basis = [str(value) for value in global_axis]
         if (
             len(set(labels)) != len(labels)
@@ -93,7 +94,7 @@ class CtildeElement(Element):
         if values.shape != (len(model_axis), len(labels)):
             msg = "Ctilde source matrix must have dimensions (time, basis)."
             raise GlotaranModelError(msg)
-        return basis, values[:, [labels.index(label) for label in basis]]
+        return basis, np.take(values, [labels.index(label) for label in basis], axis=1)
 
     def create_result(
         self,
