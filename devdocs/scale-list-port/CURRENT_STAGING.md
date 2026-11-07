@@ -31,6 +31,14 @@ area penalties, partially overlapping relation intervals, and chained or
 duplicate-target CLP relations. These are explicit restrictions; do not infer
 support from the ordinary linked-data or unlinked-full paths.
 
+The original also rejects partial relation intervals and mixed full/ordinary
+groups. It silently ignores full-model constraints and area penalties; chained
+or duplicate-target relations do not produce a reliable expansion. The port
+rejects these combinations instead. A single paired full-model experiment with
+relations uses the linked-full reduction, including its validation and result
+layout. The v0.8 experiment API has no separate legacy `link_clp` switch for
+distinguishing the original linked and unlinked single-dataset groups.
+
 Ctilde requires a spectral-CLP source in the same experiment, without IRF
 dispersion or spectrally varying relations. An auxiliary dataset contains one
 Ctilde element. Supplied auxiliary data provide ordered time/basis coordinates
@@ -40,7 +48,33 @@ Ctilde CLP standard errors are not implemented. New Project records preserve
 string coordinate labels for recomputation checks; old records cannot
 retrospectively verify labels they did not record.
 
+The original imposes the same source-group, dispersion and varying-relation
+restrictions. Although it accepts permuted supplied time coordinates, it pairs
+them with source-ordered calculated rows; the port rejects that mismatch. Its
+generic CLP uncertainty path has no demonstrated Ctilde-specific correctness.
+The auxiliary result includes the `refresid` singular values and vectors, using
+the staging SVD conventions, as well as the residual itself. Unlike the old
+scheme's `add_svd` option, the v0.8 API currently has no switch to disable this
+result-time Ctilde diagnostic.
+
 ## Validation snapshot
+
+A follow-up comparison of the original author's linked-full and Ctilde code
+identified the two additional behaviors described above. With the notebook's
+one-evaluation budget, the supplied Ctilde case compared 60 arrays across four
+measured datasets, four generated Ctilde datasets and eight generated spectral
+guides. All comparisons passed, the measured inputs matched exactly, and the
+worst measured fitted-data relative norm was `1.0774e-15`. A fresh 16-dataset
+linked-ST comparison, with two evaluations and a reference recomputation at
+the saved parameters, matched all inputs and had worst fitted-data relative
+norm `5.1436e-9`. Neither limited fit demonstrates convergence. Fresh common
+runs completed 11/11 notebooks per side; the 14-leaf comparison reported 9
+PASS and 5 documented EXPECTED_DIFFERENCE, with no regressions. The reference
+core was `fcad091c`, and the staging code was `e4a03e83`. The workspace retains
+the manifests, case-study comparisons, source revisions and guarded-run logs.
+The full staging core suite reported 773 passed and 9 expected failures; a
+separate test confirmed that the new SVD arrays survive result save and reload.
+The workspace validation suite reported 81 passed and 1 skipped.
 
 At code commit `33ce20fb`, guarded serial checks reported 763 core tests passed
 with 9 xfailed, and 75 workspace validation tests passed with 1 skipped. Fresh
