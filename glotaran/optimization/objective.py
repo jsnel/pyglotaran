@@ -594,7 +594,16 @@ class OptimizationObjectiveResult:
 class OptimizationObjective:
     def __init__(self, model: ExperimentModel) -> None:
         global_modes = [is_data_model_global(data) for data in model.datasets.values()]
-        if len(model.datasets) > 1 and any(global_modes):
+        # A single paired full model needs the same relation reduction as a
+        # linked group. The ordinary single-dataset path does not reduce the
+        # full matrix, so it would otherwise silently ignore those relations.
+        single_paired_with_relations = (
+            len(model.datasets) == 1
+            and all(global_modes)
+            and is_data_model_single_amplitude(next(iter(model.datasets.values())))
+            and bool(model.clp_relations)
+        )
+        if (len(model.datasets) > 1 and any(global_modes)) or single_paired_with_relations:
             if not all(global_modes):
                 msg = "Linked full-model and ordinary datasets cannot be mixed."
                 raise ValueError(msg)

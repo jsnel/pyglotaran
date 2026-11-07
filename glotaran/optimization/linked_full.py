@@ -16,6 +16,7 @@ from glotaran.optimization.matrix import OptimizationMatrix
 from glotaran.optimization.objective import FitDecomposition
 from glotaran.optimization.objective import OptimizationObjectiveResult
 from glotaran.optimization.objective import OptimizationResult
+from glotaran.optimization.objective import create_input_data
 
 if TYPE_CHECKING:
     from glotaran.model.clp_relation import ClpRelation
@@ -188,7 +189,7 @@ def calculate_linked_full(
         )
         data.unweight_result_dataset(result_dataset)
         results[label] = OptimizationResult(
-            input_data=result_dataset.data,
+            input_data=create_input_data(data, result_dataset),
             residuals=result_dataset.residual,
             elements={
                 label: xr.Dataset(
