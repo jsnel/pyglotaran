@@ -25,36 +25,8 @@ class FullDataset:
 
 
 def _normalized_matrix(data: OptimizationData, *, global_matrix: bool) -> OptimizationMatrix:
-    """Apply the reference's normalization to explicitly supplied element scales."""
-    model = data.model
-    elements = model.global_elements if global_matrix else model.elements
-    scales = model.global_element_scale if global_matrix else model.element_scale
-    assert elements
-    scale_values = [
-        None if scales is None or element.label not in scales
-        else float(getattr(scales[element.label], 'value', scales[element.label]))
-        for element in elements
-    ]
-    defined = [scale for scale in scale_values if scale is not None]
-    total = sum(defined)
-    if defined and (not np.isfinite(total) or total == 0):
-        raise ValueError('Element scale sum must be finite and nonzero')
-    global_axis, model_axis = data.global_axis, data.model_axis
-    if global_matrix:
-        global_axis, model_axis = model_axis, global_axis
-    matrices = [
-        OptimizationMatrix.from_element(
-            None if scale is None else scale / total, element, model, global_axis, model_axis
-        )
-        for scale, element in zip(scale_values, elements, strict=True)
-    ]
-    matrix = matrices[0] if len(matrices) == 1 else OptimizationMatrix.combine(matrices)
-    if not global_matrix:
-        if data.dataset_scale is not None:
-            matrix = matrix.scale(data.dataset_scale)
-        if data.scale_list is not None:
-            matrix = matrix.scale_by_global_indices(data.scale_list)
-    return matrix
+    """Build a result matrix with native or explicitly normalized scales."""
+    return OptimizationMatrix.from_data(data, apply_weight=False, global_matrix=global_matrix)
 
 
 def _prepare_dataset(data: OptimizationData, relations) -> FullDataset:

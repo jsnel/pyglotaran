@@ -8,6 +8,9 @@ from glotaran.model.clp_relation import ClpRelation
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.builtin.elements.spectral.shape import SpectralShapeSkewedGaussianSum
 from glotaran.optimization.objective import OptimizationObjective
+from glotaran.optimization.data import OptimizationData
+from glotaran.optimization.matrix import OptimizationMatrix
+from glotaran.parameter import Parameter
 from tests.optimization.data import TestDataModelGlobal
 
 
@@ -167,6 +170,7 @@ def test_global_element_scales_are_normalized_each_evaluation():
         second.label = 'second'
         model.global_elements.append(second)
         model.global_element_scale = {model.global_elements[0].label: 1, 'second': 3}
+        model.normalize_global_element_scales = True
     obj = OptimizationObjective(ExperimentModel(datasets={'one': one, 'two': two},
         clp_relations=[ClpRelation(source='s1', target='s2', parameter=3)]))
     amplitudes = obj.get_result().optimization_results['one'].elements['one'].amplitudes
@@ -181,6 +185,7 @@ def test_global_scale_normalization_uses_current_values():
         second.value = 8
         model.global_elements.append(second)
         model.global_element_scale = {model.global_elements[0].label: 1, 'second': 3}
+        model.normalize_global_element_scales = True
     obj = OptimizationObjective(ExperimentModel(datasets={'one': one, 'two': two},
         clp_relations=[ClpRelation(source='s1', target='s2', parameter=3)]))
     first = obj.get_result().optimization_results['one'].elements['one'].amplitudes.values[0, 0]
@@ -190,6 +195,73 @@ def test_global_scale_normalization_uses_current_values():
     second = obj.get_result().optimization_results['one'].elements['one'].amplitudes.values[0, 0]
     assert first == pytest.approx(160 / (5 * 7 * 4))
     assert second == pytest.approx(160 / (5 * 5 * 4))
+
+
+def test_native_scalar_element_scale_remains_literal_by_default():
+    model = paired(0)
+    model.element_scale = {model.elements[0].label: 3}
+    matrix = OptimizationMatrix.from_data(OptimizationData(model))
+    np.testing.assert_allclose(matrix.array, 15)
+
+
+def test_native_partial_element_scale_keeps_unlisted_default_one():
+    model = paired(0)
+    other = deepcopy(model.elements[0])
+    other.label, other.value = 'other', 8
+    model.elements.append(other)
+    model.element_scale = {model.elements[0].label: 3}
+    matrix = OptimizationMatrix.from_data(OptimizationData(model))
+    np.testing.assert_allclose(matrix.array, 23)
+
+
+def test_opt_in_local_normalization_preserves_dataset_scalar_and_scale_list():
+    model = paired(0)
+    other = deepcopy(model.elements[0])
+    other.label, other.value = 'other', 8
+    model.elements.append(other)
+    model.element_scale = {model.elements[0].label: 1, 'other': 3}
+    model.normalize_element_scales = True
+    model.scale_list = [2, 3, 4, 5]
+    matrix = OptimizationMatrix.from_data(OptimizationData(model, scale=10))
+    np.testing.assert_allclose(matrix.array[:, 0, 0], np.array([2, 3, 4, 5]) * 72.5)
+
+
+def test_opt_in_scale_normalization_follows_live_parameters():
+    model = paired(0)
+    other = deepcopy(model.elements[0])
+    other.label, other.value = 'other', 8
+    model.elements.append(other)
+    first = Parameter(label='first', value=1)
+    second = Parameter(label='second', value=3)
+    model.element_scale = {model.elements[0].label: first, 'other': second}
+    model.normalize_element_scales = True
+    data = OptimizationData(model)
+    np.testing.assert_allclose(OptimizationMatrix.from_data(data).array, 7.25)
+    first.value, second.value = 3, 1
+    np.testing.assert_allclose(OptimizationMatrix.from_data(data).array, 5.75)
+
+
+@pytest.mark.parametrize('values', [(0, 0), (float('inf'), 1), (float('nan'), 1)])
+def test_opt_in_normalization_rejects_zero_or_nonfinite_sum(values):
+    model = paired(0)
+    other = deepcopy(model.elements[0])
+    other.label = 'other'
+    model.elements.append(other)
+    model.element_scale = {model.elements[0].label: values[0], 'other': values[1]}
+    model.normalize_element_scales = True
+    with pytest.raises(ValueError, match='finite and nonzero'):
+        OptimizationMatrix.from_data(OptimizationData(model))
+
+
+def test_opt_in_normalization_rejects_partial_mapping():
+    model = paired(0)
+    other = deepcopy(model.elements[0])
+    other.label = 'other'
+    model.elements.append(other)
+    model.element_scale = {model.elements[0].label: 3}
+    model.normalize_element_scales = True
+    with pytest.raises(ValueError, match='every element'):
+        OptimizationMatrix.from_data(OptimizationData(model))
 
 
 def test_skewed_gaussian_sum_first_amplitude_scales_full_sum():

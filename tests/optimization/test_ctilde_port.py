@@ -107,6 +107,27 @@ def test_generated_direct_residual_uses_source_relations_and_weights():
     np.testing.assert_array_equal(auxiliary.fit_decomposition.clp.values, [[1.0]])
 
 
+def test_ctilde_source_respects_normalized_element_scale():
+    reference = make_scheme().optimize(
+        params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True
+    )
+    scaled_scheme = make_scheme()
+    source = scaled_scheme.experiments["one"].datasets["source"]
+    source.element_scale = {"decay": 3.0}
+    source.normalize_element_scales = True
+    scaled = scaled_scheme.optimize(
+        params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True
+    )
+    expected = reference.optimization_results["auxiliary"]
+    actual = scaled.optimization_results["auxiliary"]
+    xr.testing.assert_allclose(actual.input_data, expected.input_data)
+    xr.testing.assert_allclose(actual.residuals, expected.residuals)
+    for name in ("Ctilde", "Etilde", "refresid"):
+        xr.testing.assert_allclose(
+            actual.elements["ctilde_model"][name], expected.elements["ctilde_model"][name]
+        )
+
+
 def test_auxiliary_does_not_add_free_clps():
     from glotaran.optimization.optimization import Optimization
 
