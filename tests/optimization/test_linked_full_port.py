@@ -23,6 +23,21 @@ def paired(value):
     return model
 
 
+def reordered_exponential_model():
+    from tests.optimization.elements import TestElementExponential
+
+    model = paired(0)
+    model.elements = [TestElementExponential(
+        type='test-element-exponential', label='local', dimension='model_dim',
+        is_index_dependent=False, compartments=['s1', 's2'], rates=[0.1, 0.4])]
+    model.global_elements = [TestElementExponential(
+        type='test-element-exponential', label='global', dimension='global_dim',
+        is_index_dependent=False, compartments=['s2', 's1'], rates=[0.3, 0.7])]
+    model.element_scale = None
+    model.global_element_scale = None
+    return model
+
+
 def test_linked_shared_paired_amplitudes_relations_and_dataset_scaling():
     # Matrix columns both equal 5*4. Fit s1=2, s2=3*s1=6, so the
     # first dataset is 160 and the second, scaled by 3, is 480.
@@ -85,12 +100,70 @@ def test_reordered_global_labels_are_paired_by_name():
     one, two = paired(160), paired(160)
     for model in (one, two):
         model.global_elements[0].compartments = ['s2', 's1']
+        model.align_paired_clp_labels = True
     obj = OptimizationObjective(ExperimentModel(datasets={'one': one, 'two': two},
         clp_relations=[ClpRelation(source='s1', target='s2', parameter=3)]))
     result = obj.get_result()
     amplitudes = result.optimization_results['one'].elements['one'].amplitudes
     assert amplitudes.global_clp_label.values.tolist() == ['s1', 's2']
     np.testing.assert_allclose(amplitudes.values, [[2, 0], [0, 6]], atol=1e-10)
+
+
+@pytest.mark.parametrize('by_name', [False, True])
+@pytest.mark.parametrize('linked', [False, True])
+def test_pairing_order_is_explicit_and_consistent_for_single_and_linked(by_name, linked):
+    model = reordered_exponential_model()
+    model.align_paired_clp_labels = by_name
+    x, y = model.data.model_dim.values, model.data.global_dim.values
+    global_rates = [0.7, 0.3] if by_name else [0.3, 0.7]
+    expected = (2 * np.outer(np.exp(-0.1 * x), np.exp(-global_rates[0] * y)) +
+                3 * np.outer(np.exp(-0.4 * x), np.exp(-global_rates[1] * y)))
+    model.data['data'].values[:] = expected
+    datasets = {'one': model}
+    if linked:
+        datasets['two'] = deepcopy(model)
+    objective = OptimizationObjective(ExperimentModel(datasets=datasets))
+    result = objective.get_result()
+    assert result.clp_size == 2
+    for output in result.optimization_results.values():
+        amplitudes = next(iter(output.elements.values())).amplitudes
+        assert amplitudes.global_clp_label.values.tolist() == (['s1', 's2'] if by_name else ['s2', 's1'])
+        np.testing.assert_allclose(amplitudes.values, [[2, 0], [0, 3]], atol=1e-9)
+        np.testing.assert_allclose(output.fitted_data.values, expected, atol=1e-9)
+
+
+@pytest.mark.parametrize('by_name', [False, True])
+def test_simulation_uses_the_same_explicit_pairing(by_name):
+    from glotaran.simulation import simulate
+
+    model = reordered_exponential_model()
+    model.align_paired_clp_labels = by_name
+    x, y = model.data.model_dim.values, model.data.global_dim.values
+    global_rates = [0.7, 0.3] if by_name else [0.3, 0.7]
+    expected = (np.outer(np.exp(-0.1 * x), np.exp(-global_rates[0] * y)) +
+                np.outer(np.exp(-0.4 * x), np.exp(-global_rates[1] * y)))
+    output = simulate(model, {}, None, {'model_dim': x, 'global_dim': y})
+    np.testing.assert_allclose(output.data.values, expected, atol=1e-9)
+
+
+def test_name_alignment_rejects_unmatched_labels():
+    one = paired(160)
+    one.global_elements[0].compartments = ['s1', 'different']
+    one.align_paired_clp_labels = True
+    with pytest.raises(Exception, match='matching unique'):
+        OptimizationObjective(ExperimentModel(datasets={'one': one})).calculate()
+
+
+def test_single_global_result_uses_experiment_nnls():
+    model = paired(-10)
+    # Dataset defaults to variable_projection; the experiment's NNLS controls
+    # the objective and must control the reported solution as well.
+    objective = OptimizationObjective(ExperimentModel(
+        datasets={'one': model}, residual_function='non_negative_least_squares'))
+    residual = objective.calculate()
+    result = objective.get_result().optimization_results['one']
+    np.testing.assert_allclose(residual, result.residuals.values.T.ravel(), atol=1e-10)
+    np.testing.assert_allclose(result.fitted_data, 0, atol=1e-10)
 
 
 def test_nonmatching_labels_keep_positional_pairing():

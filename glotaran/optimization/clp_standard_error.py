@@ -279,7 +279,7 @@ def _calculate_global_linear_variance(
 ) -> dict[str, np.ndarray]:
     data = objective.data
     assert isinstance(data, OptimizationData)
-    _, _, full_matrix = OptimizationMatrix.from_global_data(data)
+    model_matrix, global_matrix, full_matrix = OptimizationMatrix.from_global_data(data)
     assert data.flat_data is not None
     estimation = OptimizationEstimation.calculate(
         full_matrix.array, data.flat_data, "variable_projection"
@@ -288,8 +288,6 @@ def _calculate_global_linear_variance(
     covariance = sigma_squared * _safe_pinv_xtx(full_matrix.array)
     variances = np.diag(covariance)
     full_labels = full_matrix.clp_axis
-    model_matrix = OptimizationMatrix.from_data(data)
-    global_matrix = OptimizationMatrix.from_data(data, global_matrix=True)
     result: dict[str, np.ndarray] = {}
     for label, clp in clps.items():
         if is_data_model_single_amplitude(data.model):

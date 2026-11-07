@@ -169,6 +169,22 @@ class OptimizationMatrix:
         return matrix
 
     @classmethod
+    def align_paired_global(
+        cls, model: DataModel, local: OptimizationMatrix, global_matrix: OptimizationMatrix
+    ) -> OptimizationMatrix:
+        """Optionally align paired global columns to the model's CLP labels."""
+        if not model.align_paired_clp_labels:
+            return global_matrix
+        if (len(set(local.clp_axis)) != len(local.clp_axis)
+                or len(set(global_matrix.clp_axis)) != len(global_matrix.clp_axis)
+                or set(local.clp_axis) != set(global_matrix.clp_axis)):
+            raise GlotaranModelError(
+                "Paired label alignment requires matching unique model and global CLP labels."
+            )
+        order = [global_matrix.clp_axis.index(label) for label in local.clp_axis]
+        return replace(global_matrix, clp_axis=list(local.clp_axis), array=global_matrix.array[..., order])
+
+    @classmethod
     def from_global_data(
         cls, data: OptimizationData
     ) -> tuple[
@@ -194,6 +210,7 @@ class OptimizationMatrix:
                     "have the same number of components."
                 )
                 raise GlotaranModelError(msg)
+            global_matrix = cls.align_paired_global(data.model, matrix, global_matrix)
             clp_axis = [
                 f"{global_label}@{model_label}"
                 for global_label, model_label in zip(

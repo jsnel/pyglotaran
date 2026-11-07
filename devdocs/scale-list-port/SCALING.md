@@ -34,6 +34,22 @@ resulting matrix has one column per pair and uses labels of the form
 `global_label@model_label`; the result amplitude matrix is diagonal and the
 reported CLP size counts only the paired amplitudes.
 
+Some migrated models have matching component labels but a different 0.8
+column order because the new kinetic API resolves compartments differently.
+For those cases, set `align_paired_clp_labels: true` to align the global
+columns to the model columns by label before pairing. Both sets of labels must
+be unique and equal. Without this flag, pairing is positional even when the
+two sets happen to contain the same labels. Optimization and simulation use
+the same choice.
+
+Element scales remain literal 0.8 multipliers by default. To reproduce the
+later source branch's normalized scale-list semantics, set
+`normalize_element_scales: true` and/or
+`normalize_global_element_scales: true` beside the relevant scale map. An
+enabled scale map must name every element, and its sum must be finite and
+nonzero. Dataset-level scalar `scale` and per-coordinate `scale_list` stay
+independent multipliers.
+
 Index-dependent global matrices remain unsupported for paired composition,
 because the paired contract is defined for one global component matrix shared
 over the global coordinate. Cartesian composition remains the default. The previously ignored scalar scale
