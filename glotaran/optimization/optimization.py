@@ -110,7 +110,8 @@ class Optimization:
                 f"experiment[{experiment_index}]:{dataset_label}"
                 for experiment_index, experiment in enumerate(models)
                 for dataset_label, dataset in experiment.datasets.items()
-                if dataset.residual_function != "variable_projection"
+                if experiment.residual_function != "variable_projection"
+                or dataset.residual_function != "variable_projection"
             ]
             if unsupported:
                 msg = (

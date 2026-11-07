@@ -210,6 +210,26 @@ def test_clp_standard_error_rejects_non_negative_least_squares() -> None:
         )
 
 
+def test_clp_standard_error_rejects_experiment_nnls_with_default_dataset_solver() -> None:
+    """The experiment controls the CLP objective even if its dataset uses the default."""
+    data_model = DataModel(elements=["decay_independent"])
+    experiment = ExperimentModel(
+        datasets={"dataset": data_model}, residual_function="non_negative_least_squares"
+    )
+    parameters = Parameters.from_dict({"rates": {"decay": [0.8, 0.04]}})
+    axes = {"global": np.arange(2), "model": np.arange(20)}
+    clp = xr.DataArray(
+        [[1.0, 2.0]] * 2,
+        coords=(("global", axes["global"]), ("clp_label", ["c1", "c2"])),
+    )
+    data_model.data = simulate(data_model, test_library, parameters, axes, clp)
+    with pytest.raises(ValueError, match="variable_projection"):
+        Optimization(
+            models=[experiment], parameters=parameters, library=test_library,
+            compute_clp_standard_error=True,
+        )
+
+
 def test_perturbed_objective_restores_values_after_exception() -> None:
     parameters = Parameters.from_dict({"fit": {"p": [1.0]}})
     candidate = parameters.copy()
