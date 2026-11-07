@@ -53,9 +53,20 @@ restrictions. Although it accepts permuted supplied time coordinates, it pairs
 them with source-ordered calculated rows; the port rejects that mismatch. Its
 generic CLP uncertainty path has no demonstrated Ctilde-specific correctness.
 The auxiliary result includes the `refresid` singular values and vectors, using
-the staging SVD conventions, as well as the residual itself. Unlike the old
-scheme's `add_svd` option, the v0.8 API currently has no switch to disable this
-result-time Ctilde diagnostic.
+the staging SVD conventions, as well as the residual itself. Set the scheme's
+`add_svd: false` or pass `add_svd=False` to `Scheme.optimize` or
+`Project.optimize` to skip this result-time decomposition; the default is
+`true`. A per-fit override takes precedence and is saved in the effective
+optimizer settings for result persistence, records, exports and recomputation.
+
+The older scheme also computed input, residual and weighted-residual SVDs as
+part of optimization. Staging does not currently create those decompositions in
+its optimization results, and its input result representation normally retains
+only the data and optional weights rather than other supplied input variables.
+This setting does not undo SVDs already calculated by input preparation: some
+readers with `prepare=True` compute one when loading data, before optimization.
+Use those readers' `prepare=False` option when that separate calculation is not
+wanted.
 
 ## Validation snapshot
 

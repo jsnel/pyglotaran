@@ -73,6 +73,7 @@ class Optimization:
         gtol: float | None = 1e-8,
         xtol: float | None = 1e-8,
         x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0,
+        add_svd: bool = True,
         parameter_penalties: list[EqualParameterPenalty] | None = None,
         compute_clp_standard_error: bool = False,
         clp_standard_error_finite_difference_relative_step: float = 1e-6,
@@ -82,6 +83,9 @@ class Optimization:
             "Levenberg-Marquardt",
         ] = "TrustRegionReflection",
     ) -> None:
+        if not isinstance(add_svd, bool):
+            msg = "add_svd must be a boolean."
+            raise TypeError(msg)
         label_counts = Counter(label for experiment in models for label in experiment.datasets)
         if repeated := [label for label, count in label_counts.items() if count > 1]:
             msg = (
@@ -134,7 +138,7 @@ class Optimization:
             msg = "CLP standard errors for Ctilde objectives are not supported."
             raise ValueError(msg)
         self._objectives = [
-            CtildeObjective(experiment)
+            CtildeObjective(experiment, add_svd=add_svd)
             if any(
                 isinstance(element, CtildeElement)
                 for dataset in experiment.datasets.values()
@@ -160,6 +164,7 @@ class Optimization:
             xtol=xtol,
             maximum_number_function_evaluations=maximum_number_function_evaluations,
             x_scale=x_scale,
+            add_svd=add_svd,
             compute_clp_standard_error=compute_clp_standard_error,
             clp_standard_error_finite_difference_relative_step=(
                 clp_standard_error_finite_difference_relative_step

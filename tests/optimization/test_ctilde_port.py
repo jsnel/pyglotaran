@@ -9,6 +9,8 @@ import pytest
 import xarray as xr
 
 from glotaran.builtin.elements.ctilde import CtildeElement
+from glotaran.builtin.io.yml.utils import load_dict
+from glotaran.builtin.io.yml.utils import write_dict
 from glotaran.io import load_result
 from glotaran.model.errors import GlotaranModelError
 from glotaran.model.errors import GlotaranUserError
@@ -21,6 +23,13 @@ from glotaran.project.scheme import Scheme
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+REFRESID_SVD = {
+    "refresid_left_singular_vectors",
+    "refresid_singular_values",
+    "refresid_right_singular_vectors",
+}
 
 
 def test_observations_refresid_uses_estimated_concentrations():
@@ -134,6 +143,118 @@ def test_refresid_svd_reconstructs_spectral_residual():
     assert right.dims == ("spectral", "right_singular_value_index")
     np.testing.assert_allclose(
         (left.values * values.values) @ right.values.T, details.refresid.values, atol=1e-12
+    )
+
+
+def test_disabling_svd_skips_calculation_without_changing_fit(monkeypatch: pytest.MonkeyPatch):
+    source = input_data()
+    source["data"][2, 0] += 0.25
+    reference = make_scheme().optimize(
+        params(), {"source": source}, dry_run=True, verbose=False, raise_exception=True
+    )
+
+    def fail_svd(*args: object, **kwargs: object) -> None:
+        raise AssertionError("SVD calculation must not run when add_svd is false")
+
+    monkeypatch.setattr("glotaran.optimization.ctilde.add_svd_to_dataset", fail_svd)
+    result = make_scheme().optimize(
+        params(),
+        {"source": source},
+        add_svd=False,
+        dry_run=True,
+        verbose=False,
+        raise_exception=True,
+    )
+    assert result.optimizer_settings.add_svd is False
+    for label in ("source", "auxiliary"):
+        actual = result.optimization_results[label]
+        expected = reference.optimization_results[label]
+        xr.testing.assert_allclose(actual.input_data, expected.input_data)
+        xr.testing.assert_allclose(actual.fitted_data, expected.fitted_data)
+        xr.testing.assert_allclose(actual.residuals, expected.residuals)
+    actual = result.optimization_results["auxiliary"].elements["ctilde_model"]
+    expected = reference.optimization_results["auxiliary"].elements["ctilde_model"]
+    assert REFRESID_SVD.isdisjoint(actual.data_vars)
+    assert REFRESID_SVD.issubset(expected.data_vars)
+    for name in ("Ctilde", "Etilde", "refresid"):
+        xr.testing.assert_allclose(actual[name], expected[name])
+    assert result.optimization_info.cost == pytest.approx(reference.optimization_info.cost)
+
+
+@pytest.mark.parametrize(
+    ("scheme_value", "override", "expected"),
+    [(True, None, True), (False, None, False), (True, False, False), (False, True, True)],
+)
+def test_svd_scheme_default_and_per_fit_override(
+    scheme_value: bool, override: bool | None, expected: bool
+):
+    scheme = make_scheme()
+    scheme.add_svd = scheme_value
+    result = scheme.optimize(
+        params(),
+        {"source": input_data()},
+        add_svd=override,
+        dry_run=True,
+        verbose=False,
+        raise_exception=True,
+    )
+    details = result.optimization_results["auxiliary"].elements["ctilde_model"]
+    assert (
+        REFRESID_SVD.issubset(details.data_vars)
+        if expected
+        else REFRESID_SVD.isdisjoint(details.data_vars)
+    )
+    assert result.optimizer_settings.add_svd is expected
+    assert scheme.add_svd is scheme_value
+
+
+@pytest.mark.parametrize("via_project", [False, True])
+@pytest.mark.parametrize("invalid", ["false", 0])
+def test_svd_override_requires_bool(tmp_path: Path, via_project: bool, invalid: str | int):
+    scheme = make_scheme()
+    data = {"source": input_data()}
+    if via_project:
+        with pytest.raises(TypeError, match="add_svd must be a boolean"):
+            Project.start(tmp_path).optimize(
+                scheme, params(), data, add_svd=invalid, verbose=False
+            )
+    else:
+        with pytest.raises(TypeError, match="add_svd must be a boolean"):
+            scheme.optimize(params(), data, add_svd=invalid, verbose=False)
+
+
+def test_disabled_svd_result_save_and_reload(tmp_path: Path):
+    result = make_scheme().optimize(
+        params(),
+        {"source": input_data()},
+        add_svd=False,
+        dry_run=True,
+        verbose=False,
+        raise_exception=True,
+    )
+    result.save(tmp_path / "result")
+    restored = load_result(tmp_path / "result")
+    assert restored.optimizer_settings.add_svd is False
+    actual = restored.optimization_results["auxiliary"].elements["ctilde_model"]
+    expected = result.optimization_results["auxiliary"].elements["ctilde_model"]
+    assert REFRESID_SVD.isdisjoint(actual.data_vars)
+    for name in ("Ctilde", "Etilde", "refresid"):
+        xr.testing.assert_allclose(actual[name], expected[name])
+
+
+def test_old_result_without_svd_setting_loads_with_original_default(tmp_path: Path):
+    result = make_scheme().optimize(
+        params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True
+    )
+    result.save(tmp_path / "result")
+    result_file = tmp_path / "result" / "result.yml"
+    serialized = load_dict(result_file, is_file=True)
+    serialized["optimizer_settings"].pop("add_svd", None)
+    write_dict(serialized, file_name=result_file)
+    restored = load_result(tmp_path / "result")
+    assert restored.optimizer_settings.add_svd is True
+    assert REFRESID_SVD.issubset(
+        restored.optimization_results["auxiliary"].elements["ctilde_model"].data_vars
     )
 
 
@@ -341,6 +462,58 @@ def test_ctilde_diagnostics_are_saved_and_reloaded(tmp_path: Path):
         "refresid_right_singular_vectors",
     ):
         xr.testing.assert_allclose(actual[name], expected[name])
+
+
+@pytest.mark.parametrize(("scheme_value", "override"), [(True, False), (False, True)])
+def test_project_records_ctilde_svd_override_and_recomputes(
+    tmp_path: Path, scheme_value: bool, override: bool
+):
+    project = Project.start(tmp_path)
+    source = input_data()
+    scheme = make_scheme()
+    scheme.add_svd = scheme_value
+    result = project.optimize(
+        scheme,
+        params(),
+        {"source": source},
+        add_svd=override,
+        verbose=False,
+        raise_exception=True,
+    )
+    assert result.record is not None
+    assert result.optimizer_settings.add_svd is override
+    record = read_record_file(result.record.path)
+    assert record["optimizer"]["add_svd"] is override
+    expected = result.optimization_results["auxiliary"].elements["ctilde_model"]
+    assert (
+        REFRESID_SVD.issubset(expected.data_vars)
+        if override
+        else REFRESID_SVD.isdisjoint(expected.data_vars)
+    )
+
+    recomputed = project.recompute(result.record, {"source": source})
+    assert recomputed.optimizer_settings.add_svd is override
+    actual = recomputed.optimization_results["auxiliary"].elements["ctilde_model"]
+    assert (
+        REFRESID_SVD.issubset(actual.data_vars)
+        if override
+        else REFRESID_SVD.isdisjoint(actual.data_vars)
+    )
+    xr.testing.assert_allclose(actual.refresid, expected.refresid)
+
+    exported = project.export(result, "ctilde-svd")
+    restored = load_result(exported)
+    assert restored.optimizer_settings.add_svd is override
+    exported_recomputation = project.recompute(exported, {"source": source})
+    assert exported_recomputation.optimizer_settings.add_svd is override
+    exported_details = exported_recomputation.optimization_results["auxiliary"].elements[
+        "ctilde_model"
+    ]
+    assert (
+        REFRESID_SVD.issubset(exported_details.data_vars)
+        if override
+        else REFRESID_SVD.isdisjoint(exported_details.data_vars)
+    )
 
 
 def test_project_records_and_recomputes_without_generated_input(tmp_path: Path):

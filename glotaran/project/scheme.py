@@ -39,6 +39,10 @@ class Scheme(BaseModel):
     library: ModelLibrary
     parameter_penalties: list[EqualParameterPenalty] = Field(default_factory=list)
     x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+    add_svd: bool = Field(
+        default=True,
+        description="Compute optional result-time singular value decompositions.",
+    )
     compute_clp_standard_error: bool = False
     clp_standard_error_finite_difference_relative_step: float = 1e-6
 
@@ -128,6 +132,7 @@ class Scheme(BaseModel):
         gtol: float | None = 1e-8,
         xtol: float | None = 1e-8,
         x_scale: float | Literal["jac"] | list[float] | dict[str, float] | None = None,
+        add_svd: bool | None = None,
         compute_clp_standard_error: bool | None = None,
         clp_standard_error_finite_difference_relative_step: float | None = None,
         optimization_method: Literal[
@@ -149,6 +154,7 @@ class Scheme(BaseModel):
             gtol=gtol,
             xtol=xtol,
             x_scale=x_scale,
+            add_svd=add_svd,
             compute_clp_standard_error=compute_clp_standard_error,
             clp_standard_error_finite_difference_relative_step=(
                 clp_standard_error_finite_difference_relative_step
@@ -193,6 +199,10 @@ class Scheme(BaseModel):
             scheme.x_scale if x_scale is None else self.validate_x_scale(x_scale)
         )
         optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
+        # Project.optimize also enters through this path. Persist the effective
+        # value in optimizer settings so records and exports replay overrides.
+        add_svd = optimization_kwargs.get("add_svd")
+        optimization_kwargs["add_svd"] = scheme.add_svd if add_svd is None else add_svd
         # Project.optimize enters here directly too. Resolve None as the scheme
         # default and persist explicit per-fit overrides in optimizer settings.
         clp_enabled = optimization_kwargs.get("compute_clp_standard_error")

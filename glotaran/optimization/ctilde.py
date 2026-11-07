@@ -35,8 +35,9 @@ class CtildeObjective:
     objective evaluation. Ctilde does not add free CLPs of its own.
     """
 
-    def __init__(self, model: ExperimentModel) -> None:
+    def __init__(self, model: ExperimentModel, *, add_svd: bool = True) -> None:
         self._model = model
+        self._add_svd = add_svd
         self._auxiliary = {}
         self._supplied = {}
         measured = {}
@@ -236,7 +237,8 @@ class CtildeObjective:
             auxiliary_element = xr.Dataset(
                 {"Ctilde": ctilde, "Etilde": etilde, "refresid": observed["refresid"]}
             )
-            add_svd_to_dataset(auxiliary_element, name="refresid")
+            if self._add_svd:
+                add_svd_to_dataset(auxiliary_element, name="refresid")
             auxiliary_element.attrs["element_uid"] = full_plugin_name(element)
             source_result.elements[element.label] = xr.Dataset(
                 {"Ctilde": ctilde, "Etilde": etilde},

@@ -48,6 +48,7 @@ class OptimizerSettings(BaseModel):
     maximum_number_function_evaluations: int | None
     # Default supports loading results and records written before x_scale existed.
     x_scale: float | Literal["jac"] | list[float] | dict[str, float] = 1.0
+    add_svd: bool = True
     compute_clp_standard_error: bool = False
     clp_standard_error_finite_difference_relative_step: float = 1e-6
 

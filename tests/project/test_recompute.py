@@ -204,6 +204,33 @@ def test_project_clp_standard_error_overrides_are_recorded(project: Project, dat
     )
 
 
+def test_older_record_without_add_svd_keeps_default(project: Project, data: xr.Dataset):
+    """A record and scheme predating add_svd still recompute with it enabled."""
+    result = project.optimize(
+        Scheme.from_dict(SCHEME_DICT),
+        PARAMETERS,
+        {LABEL: data},
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
+    )
+    assert result.record is not None
+    folder = result.record.path
+    record_file = folder / "record.yml"
+    record = load_dict(record_file, is_file=True)
+    record["optimizer"].pop("add_svd", None)
+    write_dict(record, file_name=record_file)
+    scheme_file = folder / "scheme.yml"
+    scheme_spec = load_dict(scheme_file, is_file=True)
+    scheme_spec.pop("add_svd", None)
+    write_dict(scheme_spec, file_name=scheme_file)
+
+    recomputed = project.recompute(result.record, {LABEL: data})
+    assert recomputed.scheme.add_svd is True
+    assert recomputed.optimizer_settings.add_svd is True
+    assert recomputed.optimization_info.cost == result.optimization_info.cost
+
+
 def test_recompute_by_id_and_path_writes_no_record(
     project: Project, scheme: Scheme, data: xr.Dataset
 ):
