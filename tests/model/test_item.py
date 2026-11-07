@@ -3,6 +3,8 @@ from __future__ import annotations
 from itertools import permutations
 from typing import Literal
 
+import numpy as np
+
 from glotaran.model.item import Item
 from glotaran.model.item import ParameterType
 from glotaran.model.item import TypedItem
@@ -126,6 +128,24 @@ def test_nested_parameter_issues_and_resolution():
         [4.0],
     ]
     assert [float(value) for value in resolved.grouped_by_name["first"]] == [3.0, 2.0]
+
+
+def test_pep695_parameter_alias_resolves_spectral_shape():
+    from glotaran.builtin.elements.spectral.shape import SpectralShapeGaussian
+
+    shape = SpectralShapeGaussian(
+        type="gaussian", amplitude="amplitude", location="location", width="width"
+    )
+    issues = get_item_issues(shape, Parameters.empty())
+    assert len(issues) == 3
+    parameters = Parameters.from_list(
+        [["amplitude", 2.0], ["location", 650.0], ["width", 20.0]]
+    )
+    resolved = resolve_item_parameters(shape, Parameters.empty(), parameters)
+    assert isinstance(resolved.amplitude, Parameter)
+    assert isinstance(resolved.location, Parameter)
+    assert isinstance(resolved.width, Parameter)
+    assert resolved.calculate(np.array([650.0]))[0] == 2.0
 
 
 def test_resolve_item_parameters():
