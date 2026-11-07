@@ -241,6 +241,12 @@ def test_supplied_ctilde_project_record_and_recompute(tmp_path):
     actual = recomputed.optimization_results["auxiliary"]
     xr.testing.assert_allclose(expected.input_data, actual.input_data)
     xr.testing.assert_allclose(expected.residuals, actual.residuals)
+    from glotaran.model.errors import GlotaranUserError
+
+    altered = dict(datasets)
+    altered["auxiliary"] = datasets["auxiliary"].assign_coords(basis=["a", "b"])
+    with pytest.raises(GlotaranUserError, match="basis coordinate labels changed"):
+        project.recompute(result.record, altered)
 
 
 @pytest.mark.parametrize("axis", ["time", "basis", "duplicate"])

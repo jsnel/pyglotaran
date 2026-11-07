@@ -47,6 +47,7 @@ def summarize_data(dataset: xr.Dataset) -> dict[str, Any]:
 
     The summary holds the shape by dimension name and the statistics of each coordinate of the
     dimensions of ``data`` and of the variables ``data`` and, if present, ``weight``.
+    String-valued dimension coordinates are retained in order for comparison.
 
     Parameters
     ----------
@@ -59,9 +60,18 @@ def summarize_data(dataset: xr.Dataset) -> dict[str, Any]:
     """
     data = dataset.data
     summary: dict[str, Any] = {"shape": {str(dim): int(size) for dim, size in data.sizes.items()}}
+    coordinate_labels: dict[str, list[str]] = {}
     for dim in data.dims:
         if dim in dataset.coords and np.issubdtype(dataset.coords[dim].dtype, np.number):
             summary[str(dim)] = summarize_values(dataset.coords[dim].to_numpy())
+        elif dim in dataset.coords:
+            values = dataset.coords[dim].to_numpy()
+            if values.dtype.kind in {"U", "S"} or (
+                values.dtype.kind == "O" and all(isinstance(value, str) for value in values)
+            ):
+                coordinate_labels[str(dim)] = [str(value) for value in values]
+    if coordinate_labels:
+        summary["coordinate_labels"] = coordinate_labels
     for name in ("data", "weight"):
         if name in dataset:
             summary[name] = summarize_values(
@@ -119,8 +129,16 @@ def compare_data_summaries(
     differences = []
     if recorded.get("shape") != current.get("shape"):
         differences.append(f"{label}: shape {recorded.get('shape')} -> {current.get('shape')}")
-    names = [name for name in recorded if isinstance(recorded[name], dict) and name != "shape"]
-    names += [name for name in current if isinstance(current[name], dict) and name != "shape"]
+    # Older records did not capture string coordinate labels; leave those readable.
+    if "coordinate_labels" in recorded:
+        old_labels = recorded["coordinate_labels"]
+        new_labels = current.get("coordinate_labels", {})
+        for dimension in dict.fromkeys([*old_labels, *new_labels]):
+            if old_labels.get(dimension) != new_labels.get(dimension):
+                differences.append(f"{label}: {dimension} coordinate labels changed")
+    excluded = {"shape", "coordinate_labels"}
+    names = [name for name in recorded if isinstance(recorded[name], dict) and name not in excluded]
+    names += [name for name in current if isinstance(current[name], dict) and name not in excluded]
     for name in dict.fromkeys(names):
         if name not in current:
             differences.append(f"{label}: {name} removed")
