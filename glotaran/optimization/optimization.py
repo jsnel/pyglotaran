@@ -107,16 +107,14 @@ class Optimization:
         self._parameters.validate_bounds(raise_exception=True)
         if compute_clp_standard_error:
             unsupported = [
-                f"experiment[{experiment_index}]:{dataset_label}"
+                f"experiment[{experiment_index}]"
                 for experiment_index, experiment in enumerate(models)
-                for dataset_label, dataset in experiment.datasets.items()
                 if experiment.residual_function != "variable_projection"
-                or dataset.residual_function != "variable_projection"
             ]
             if unsupported:
                 msg = (
                     "CLP standard errors require variable_projection residuals; "
-                    f"unsupported datasets: {unsupported}."
+                    f"unsupported experiments: {unsupported}."
                 )
                 raise ValueError(msg)
         self._warned_penalty_fallback = False
