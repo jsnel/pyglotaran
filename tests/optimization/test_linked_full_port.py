@@ -97,6 +97,58 @@ def test_single_paired_full_model_applies_clp_relations(residual_function: str):
     np.testing.assert_allclose(output.fitted_data, output.input_data, atol=1e-10)
 
 
+@pytest.mark.parametrize("by_name", [False, True])
+def test_single_paired_relation_respects_explicit_pairing_order(by_name: bool):
+    model = reordered_exponential_model()
+    model.align_paired_clp_labels = by_name
+    x, y = model.data.model_dim.values, model.data.global_dim.values
+    global_rates = [0.7, 0.3] if by_name else [0.3, 0.7]
+    model.data["data"].values[:] = 2 * np.outer(
+        np.exp(-0.1 * x), np.exp(-global_rates[0] * y)
+    ) + 6 * np.outer(np.exp(-0.4 * x), np.exp(-global_rates[1] * y))
+    objective = OptimizationObjective(
+        ExperimentModel(
+            datasets={"one": model},
+            clp_relations=[ClpRelation(source="s1", target="s2", parameter=3)],
+        )
+    )
+    result = objective.get_result()
+    amplitudes = result.optimization_results["one"].elements["one"].amplitudes
+    assert result.clp_size == (1 if by_name else 2)
+    assert amplitudes.global_clp_label.values.tolist() == (
+        ["s1", "s2"] if by_name else ["s2", "s1"]
+    )
+    np.testing.assert_allclose(amplitudes.values, [[2, 0], [0, 6]], atol=1e-10)
+    np.testing.assert_allclose(objective.calculate(), 0, atol=1e-10)
+
+
+def test_single_paired_relation_uses_current_parameter_value():
+    relation_parameter = Parameter(label="relation", value=3)
+    objective = OptimizationObjective(
+        ExperimentModel(
+            datasets={"one": paired(160)},
+            clp_relations=[ClpRelation(source="s1", target="s2", parameter=relation_parameter)],
+        )
+    )
+    first = objective.get_result()
+    assert first.clp_size == 1
+    np.testing.assert_allclose(
+        first.optimization_results["one"].elements["one"].amplitudes.values,
+        [[2, 0], [0, 6]],
+        atol=1e-10,
+    )
+
+    relation_parameter.value = 2
+    second = objective.get_result()
+    assert second.clp_size == 1
+    np.testing.assert_allclose(
+        second.optimization_results["one"].elements["one"].amplitudes.values,
+        [[8 / 3, 0], [0, 16 / 3]],
+        atol=1e-10,
+    )
+    np.testing.assert_allclose(objective.calculate(), 0, atol=1e-10)
+
+
 def test_single_cartesian_full_model_keeps_native_path_with_relations():
     model = paired(80)
     model.global_composition = "cartesian"
