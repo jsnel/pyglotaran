@@ -35,6 +35,11 @@ class CtildeObjective:
                 element for element in data_model.elements if isinstance(element, CtildeElement)
             ]
             if generators:
+                if data_model.data is not None:
+                    raise GlotaranModelError(
+                        f"Ctilde dataset '{label}' is generated during optimization; "
+                        "supplying its own input data is not supported."
+                    )
                 if (
                     len(generators) != 1
                     or len(data_model.elements) != 1
