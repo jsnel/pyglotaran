@@ -73,6 +73,84 @@ def test_linked_shared_paired_amplitudes_relations_and_dataset_scaling():
         np.testing.assert_allclose(amplitudes.values, [[2, 0], [0, 6]], atol=1e-10)
 
 
+@pytest.mark.parametrize(
+    "residual_function", ["variable_projection", "non_negative_least_squares"]
+)
+def test_single_paired_full_model_applies_clp_relations(residual_function: str):
+    model = paired(160)
+    objective = OptimizationObjective(
+        ExperimentModel(
+            datasets={"one": model},
+            clp_relations=[ClpRelation(source="s1", target="s2", parameter=3)],
+            residual_function=residual_function,
+        )
+    )
+
+    residual = objective.calculate()
+    result = objective.get_result()
+    output = result.optimization_results["one"]
+    amplitudes = output.elements["one"].amplitudes
+    assert result.clp_size == 1
+    np.testing.assert_allclose(residual, 0, atol=1e-10)
+    np.testing.assert_allclose(output.residuals, 0, atol=1e-10)
+    np.testing.assert_allclose(amplitudes.values, [[2, 0], [0, 6]], atol=1e-10)
+    np.testing.assert_allclose(output.fitted_data, output.input_data, atol=1e-10)
+
+
+def test_single_cartesian_full_model_keeps_native_path_with_relations():
+    model = paired(80)
+    model.global_composition = "cartesian"
+    objective = OptimizationObjective(
+        ExperimentModel(
+            datasets={"one": model},
+            clp_relations=[ClpRelation(source="s1", target="s2", parameter=3)],
+        )
+    )
+    assert isinstance(objective.data, OptimizationData)
+    assert objective.get_result().clp_size == 4
+
+
+def test_single_paired_full_model_preserves_input_weights():
+    model = paired(160)
+    model.data["weight"] = xr.ones_like(model.data.data) * 2
+    objective = OptimizationObjective(
+        ExperimentModel(
+            datasets={"one": model},
+            clp_relations=[ClpRelation(source="s1", target="s2", parameter=3)],
+        )
+    )
+    result = objective.get_result().optimization_results["one"]
+    assert isinstance(result.input_data, xr.Dataset)
+    xr.testing.assert_equal(result.input_data.weight, model.data.weight)
+    np.testing.assert_allclose(result.residuals, 0, atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("relations", "message"),
+    [
+        (
+            [ClpRelation(source="s1", target="s2", parameter=3, interval=(0, 3))],
+            "partially overlapping",
+        ),
+        (
+            [
+                ClpRelation(source="s1", target="s2", parameter=3),
+                ClpRelation(source="s2", target="s1", parameter=2),
+            ],
+            "Chained or multiple",
+        ),
+    ],
+)
+def test_single_paired_full_model_rejects_unsupported_relations(
+    relations: list[ClpRelation], message: str
+):
+    objective = OptimizationObjective(
+        ExperimentModel(datasets={"one": paired(160)}, clp_relations=relations)
+    )
+    with pytest.raises(ValueError, match=message):
+        objective.calculate()
+
+
 def test_global_component_is_used_for_linked_pair():
     one, two = paired(160), paired(160)
     for model in (one, two):
