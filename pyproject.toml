@@ -59,6 +59,7 @@ entry-points."glotaran.plugins.data_io".sdt = "glotaran.builtin.io.sdt.sdt_file_
 entry-points."glotaran.plugins.data_io".img = "glotaran.builtin.io.hamamatsu.img_file_reader"
 entry-points."glotaran.plugins.elements".baseline = "glotaran.builtin.elements.baseline"
 entry-points."glotaran.plugins.elements".clp_guide = "glotaran.builtin.elements.clp_guide"
+entry-points."glotaran.plugins.elements".ctilde = "glotaran.builtin.elements.ctilde"
 entry-points."glotaran.plugins.elements".coherent_artifact = "glotaran.builtin.elements.coherent_artifact"
 entry-points."glotaran.plugins.elements".damped_oscillation = "glotaran.builtin.elements.damped_oscillation"
 entry-points."glotaran.plugins.elements".kinetic = "glotaran.builtin.elements.kinetic"

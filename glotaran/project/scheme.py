@@ -88,6 +88,8 @@ class Scheme(BaseModel):
         )
 
     def _load_data(self, datasets: Mapping[str, xr.Dataset]) -> None:
+        from glotaran.builtin.elements.ctilde import CtildeElement
+
         for experiment in self.experiments.values():
             for label, data_model in experiment.datasets.items():
                 if label in datasets:
@@ -96,6 +98,10 @@ class Scheme(BaseModel):
                     hasattr(
                         self.library[element] if isinstance(element, str) else element,
                         "calculate_data",
+                    )
+                    or isinstance(
+                        self.library[element] if isinstance(element, str) else element,
+                        CtildeElement,
                     )
                     for element in data_model.elements
                 ):
