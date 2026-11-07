@@ -319,6 +319,9 @@ def _definition_contains_type(definition: Any, wanted: type) -> bool:  # noqa: A
     """Return whether a type annotation contains ``wanted`` at any depth."""
     if definition is wanted:
         return True
+    # PEP 695 aliases such as ParameterType are opaque to get_args().
+    if isinstance(definition, TypeAliasType):
+        return _definition_contains_type(definition.__value__, wanted)
     return any(_definition_contains_type(argument, wanted) for argument in get_args(definition))
 
 
