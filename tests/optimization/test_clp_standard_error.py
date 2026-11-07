@@ -193,7 +193,9 @@ def test_clp_standard_error_rejects_non_negative_least_squares() -> None:
         elements=["decay_independent"],
         residual_function="non_negative_least_squares",
     )
-    experiment = ExperimentModel(datasets={"dataset": data_model})
+    experiment = ExperimentModel(
+        datasets={"dataset": data_model}, residual_function="non_negative_least_squares"
+    )
     parameters = Parameters.from_dict({"rates": {"decay": [0.8, 0.04]}})
     axes = {"global": np.arange(2), "model": np.arange(20)}
     clp = xr.DataArray(
@@ -228,6 +230,50 @@ def test_clp_standard_error_rejects_experiment_nnls_with_default_dataset_solver(
             models=[experiment], parameters=parameters, library=test_library,
             compute_clp_standard_error=True,
         )
+
+
+@pytest.mark.parametrize("mode", ["unlinked", "linked", "full", "linked-full"])
+def test_clp_standard_error_uses_experiment_solver_not_dataset_setting(mode: str) -> None:
+    """A legacy dataset NNLS flag must not block variable-projection experiments."""
+    parameters = Parameters.from_dict(
+        {
+            "rates": {"decay": [0.8, 0.04]},
+            "gaussian": {
+                "amplitude": [2.0, 3.0],
+                "location": [3.0, 6.0],
+                "width": [2.0, 4.0],
+            },
+        }
+    )
+    axes = {"global": np.arange(3), "model": np.arange(40)}
+    clp = xr.DataArray(
+        [[1.0, 2.0]] * 3,
+        coords=(("global", axes["global"]), ("clp_label", ["c1", "c2"])),
+    )
+    full = mode in {"full", "linked-full"}
+    labels = ["first", "second"] if mode in {"linked", "linked-full"} else ["first"]
+    datasets = {}
+    for label in labels:
+        data_model = DataModel(
+            elements=["decay_independent"],
+            global_elements=["gaussian"] if full else None,
+            residual_function="non_negative_least_squares",
+        )
+        data_model.data = simulate(
+            data_model, test_library, parameters, axes, **({} if full else {"clp": clp})
+        )
+        data_model.data["data"].data += 1e-3 * np.sin(np.arange(120)).reshape(40, 3)
+        datasets[label] = data_model
+    experiment = ExperimentModel(datasets=datasets, residual_function="variable_projection")
+    _, results, info = Optimization(
+        models=[experiment], parameters=parameters.copy(), library=test_library,
+        compute_clp_standard_error=True, verbose=False, raise_exception=True,
+        maximum_number_function_evaluations=3,
+    ).run()
+    assert info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
+    assert set(results) == set(labels)
+    for result in results.values():
+        assert result.fit_decomposition.clp_standard_error is not None
 
 
 def test_perturbed_objective_restores_values_after_exception() -> None:
