@@ -133,11 +133,15 @@ def compare_data_summaries(
     if "coordinate_labels" in recorded:
         old_labels = recorded["coordinate_labels"]
         new_labels = current.get("coordinate_labels", {})
-        for dimension in dict.fromkeys([*old_labels, *new_labels]):
-            if old_labels.get(dimension) != new_labels.get(dimension):
-                differences.append(f"{label}: {dimension} coordinate labels changed")
+        differences.extend(
+            f"{label}: {dimension} coordinate labels changed"
+            for dimension in dict.fromkeys([*old_labels, *new_labels])
+            if old_labels.get(dimension) != new_labels.get(dimension)
+        )
     excluded = {"shape", "coordinate_labels"}
-    names = [name for name in recorded if isinstance(recorded[name], dict) and name not in excluded]
+    names = [
+        name for name in recorded if isinstance(recorded[name], dict) and name not in excluded
+    ]
     names += [name for name in current if isinstance(current[name], dict) and name not in excluded]
     for name in dict.fromkeys(names):
         if name not in current:

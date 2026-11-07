@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 from typing import ClassVar
 from typing import Literal
 
@@ -13,6 +13,10 @@ from scipy.optimize import nnls
 
 from glotaran.model.element import Element
 from glotaran.model.errors import GlotaranModelError
+
+if TYPE_CHECKING:
+    from glotaran.model.data_model import DataModel
+    from glotaran.typing.types import ArrayLike
 
 
 class CtildeElement(Element):
@@ -41,7 +45,8 @@ class CtildeElement(Element):
             )
             etilde = etilde.sel(spectral=data["spectral"]).transpose("spectral", "basis")
         except (KeyError, ValueError) as exc:
-            raise GlotaranModelError("Ctilde source axes and basis labels must match.") from exc
+            msg = "Ctilde source axes and basis labels must match."
+            raise GlotaranModelError(msg) from exc
         values = data.to_numpy()
         spectra = etilde.to_numpy()
         kinetics = ctilde.to_numpy()
@@ -49,13 +54,11 @@ class CtildeElement(Element):
             spectra.shape[1],
             values.shape[1],
         ):
-            raise GlotaranModelError(
-                "Ctilde source data, kinetic matrix and spectra have incompatible shapes."
-            )
+            msg = "Ctilde source data, kinetic matrix and spectra have incompatible shapes."
+            raise GlotaranModelError(msg)
         if not all(np.isfinite(value).all() for value in (values, spectra, kinetics)):
-            raise GlotaranModelError(
-                "Ctilde source data, kinetic matrix and spectra must be finite."
-            )
+            msg = "Ctilde source data, kinetic matrix and spectra must be finite."
+            raise GlotaranModelError(msg)
         factor = np.sqrt(self.regularization_weight)
         matrix = np.vstack((spectra, factor * np.eye(spectra.shape[1])))
         augmented = np.vstack((values, factor * kinetics))
@@ -71,11 +74,12 @@ class CtildeElement(Element):
         )
 
     def calculate_matrix(
-        self, model: Any, global_axis: Any, model_axis: Any, **kwargs: Any
+        self, model: DataModel, global_axis: ArrayLike, model_axis: ArrayLike, **kwargs: object
     ) -> tuple[list[str], np.ndarray]:
         source_matrix = kwargs.get("source_matrix")
         if source_matrix is None:
-            raise GlotaranModelError("Ctilde requires its source kinetic matrix.")
+            msg = "Ctilde requires its source kinetic matrix."
+            raise GlotaranModelError(msg)
         labels, values = source_matrix
         basis = [str(value) for value in global_axis]
         if (
@@ -83,15 +87,17 @@ class CtildeElement(Element):
             or len(set(basis)) != len(basis)
             or set(basis) != set(labels)
         ):
-            raise GlotaranModelError("Ctilde basis must match unique source kinetic labels.")
+            msg = "Ctilde basis must match unique source kinetic labels."
+            raise GlotaranModelError(msg)
         values = np.asarray(values)
         if values.shape != (len(model_axis), len(labels)):
-            raise GlotaranModelError("Ctilde source matrix must have dimensions (time, basis).")
+            msg = "Ctilde source matrix must have dimensions (time, basis)."
+            raise GlotaranModelError(msg)
         return basis, values[:, [labels.index(label) for label in basis]]
 
     def create_result(
         self,
-        model: Any,
+        model: DataModel,
         global_dimension: str,
         model_dimension: str,
         amplitudes: xr.DataArray,

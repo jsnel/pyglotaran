@@ -22,8 +22,8 @@ import numpy as np
 import xarray as xr
 
 from glotaran.model.data_model import is_data_model_single_amplitude
-from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import LinkedFullOptimizationData
+from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.matrix import OptimizationMatrix
@@ -254,12 +254,14 @@ def _calculate_linear_variance(
     return {label: np.zeros(clp.shape, dtype=float) for label, clp in clps.items()}
 
 
-def _calculate_linked_full_linear_variance(objective, clps):
+def _calculate_linked_full_linear_variance(
+    objective: OptimizationObjective, clps: Mapping[str, xr.DataArray]
+) -> dict[str, np.ndarray]:
     """Propagate the shared linear covariance through each dataset's relations."""
-    from glotaran.optimization.linked_full import build_linked_full
+    from glotaran.optimization.linked_full import build_linked_full  # noqa: PLC0415
 
     datasets, aligned, matrix, data = build_linked_full(objective)
-    estimation = OptimizationEstimation.calculate(matrix, data, 'variable_projection')
+    estimation = OptimizationEstimation.calculate(matrix, data, "variable_projection")
     sigma_squared = _residual_variance(estimation.residual, matrix.shape[1])
     covariance = sigma_squared * _safe_pinv_xtx(matrix)
     result = {}
@@ -268,8 +270,11 @@ def _calculate_linked_full_linear_variance(objective, clps):
         reduced_covariance = covariance[np.ix_(indices, indices)]
         variance = np.diag(dataset.expansion @ reduced_covariance @ dataset.expansion.T)
         clp = clps[label]
-        result[label] = (np.diag(variance) if is_data_model_single_amplitude(dataset.data.model)
-                         else variance.reshape(clp.shape))
+        result[label] = (
+            np.diag(variance)
+            if is_data_model_single_amplitude(dataset.data.model)
+            else variance.reshape(clp.shape)
+        )
     return result
 
 

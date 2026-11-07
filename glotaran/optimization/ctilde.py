@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import xarray as xr
 
@@ -18,6 +20,11 @@ from glotaran.optimization.objective import OptimizationResultMetaData
 from glotaran.optimization.objective import calculate_root_mean_square_error
 from glotaran.plugin_system.base_registry import full_plugin_name
 
+if TYPE_CHECKING:
+    from glotaran.model.clp_penalties import EqualAreaPenaltyDiagnostic
+    from glotaran.model.data_model import DataModel
+    from glotaran.model.experiment_model import ExperimentModel
+
 
 class CtildeObjective:
     """Compose the measured-data objective with generated direct residuals.
@@ -26,7 +33,7 @@ class CtildeObjective:
     objective evaluation. Ctilde does not add free CLPs of its own.
     """
 
-    def __init__(self, model):
+    def __init__(self, model: ExperimentModel) -> None:
         self._model = model
         self._auxiliary = {}
         self._supplied = {}
@@ -41,88 +48,68 @@ class CtildeObjective:
                     or len(data_model.elements) != 1
                     or data_model.global_elements
                 ):
-                    raise GlotaranModelError(
-                        f"Ctilde dataset '{label}' must contain only one Ctilde element."
-                    )
+                    msg = f"Ctilde dataset '{label}' must contain only one Ctilde element."
+                    raise GlotaranModelError(msg)
                 self._auxiliary[label] = (data_model, generators[0])
                 if data_model.data is not None:
                     self._supplied[label] = data_model.data.copy(deep=True)
             else:
                 measured[label] = data_model
         if not measured:
-            raise GlotaranModelError(
-                "Ctilde requires a measured source dataset in its experiment."
-            )
+            msg = "Ctilde requires a measured source dataset in its experiment."
+            raise GlotaranModelError(msg)
         for label, (_, element) in self._auxiliary.items():
             if element.source_dataset not in measured:
-                raise GlotaranModelError(
-                    f"Ctilde dataset '{label}' requires source '{element.source_dataset}' in the same experiment."
+                msg = (
+                    f"Ctilde dataset '{label}' requires source '{element.source_dataset}' "
+                    "in the same experiment."
                 )
+                raise GlotaranModelError(msg)
             source = measured[element.source_dataset]
             if source.global_elements:
-                raise GlotaranModelError(
-                    "Ctilde source must use a spectral CLP model, not a full model."
-                )
+                msg = "Ctilde source must use a spectral CLP model, not a full model."
+                raise GlotaranModelError(msg)
             if not isinstance(source.data, xr.Dataset) or not {"time", "spectral"}.issubset(
                 source.data["data"].dims
             ):
-                raise GlotaranModelError(
-                    "Ctilde source must have time and spectral data dimensions."
-                )
+                msg = "Ctilde source must have time and spectral data dimensions."
+                raise GlotaranModelError(msg)
         self._inner = OptimizationObjective(model.model_copy(update={"datasets": measured}))
 
     @property
-    def model(self):
+    def model(self) -> ExperimentModel:
         return self._model
 
     @property
-    def data(self):
+    def data(self) -> OptimizationData | LinkedOptimizationData:
         return self._inner.data
 
-    def _calculate_auxiliary(self, label, data_model, element, clp):
+    def _calculate_auxiliary(
+        self, label: str, data_model: DataModel, element: CtildeElement, clp: xr.DataArray
+    ) -> tuple[xr.Dataset, xr.DataArray, xr.DataArray, OptimizationData, np.ndarray, np.ndarray]:
         source_model = self._model.datasets[element.source_dataset]
         source_data = source_model.data
         time = np.asarray(source_data["time"])
         spectral = np.asarray(source_data["spectral"])
         source_matrix = OptimizationMatrix.from_data_model(source_model, spectral, time, None)
         if source_matrix.is_index_dependent:
-            raise GlotaranModelError("Ctilde source cannot have IRF dispersion.")
+            msg = "Ctilde source cannot have IRF dispersion."
+            raise GlotaranModelError(msg)
         reduced = [
             source_matrix.reduce(index, self._model.clp_relations, copy=True) for index in spectral
         ]
         if not reduced:
-            raise GlotaranModelError("Ctilde source must have a nonempty spectral axis.")
+            msg = "Ctilde source must have a nonempty spectral axis."
+            raise GlotaranModelError(msg)
         basis = reduced[0]
         if any(
             item.clp_axis != basis.clp_axis or not np.allclose(item.array, basis.array)
             for item in reduced[1:]
         ):
-            raise GlotaranModelError(
-                "Ctilde source relations must be constant over its spectral range."
-            )
-        basis_labels = list(basis.clp_axis)
+            msg = "Ctilde source relations must be constant over its spectral range."
+            raise GlotaranModelError(msg)
         supplied = self._supplied.get(label)
-        if supplied is not None:
-            if not isinstance(supplied, xr.Dataset) or "data" not in supplied:
-                raise GlotaranModelError(f"Ctilde dataset '{label}' must contain data.")
-            if set(supplied["data"].dims) != {"time", "basis"}:
-                raise GlotaranModelError(
-                    f"Ctilde dataset '{label}' must have time and basis dimensions."
-                )
-            if not np.array_equal(supplied["time"].to_numpy(), time):
-                raise GlotaranModelError(
-                    f"Ctilde dataset '{label}' time coordinates must match the source in order."
-                )
-            requested = [str(value) for value in supplied["basis"].to_numpy()]
-            if (
-                len(set(requested)) != len(requested)
-                or len(set(basis_labels)) != len(basis_labels)
-                or set(requested) != set(basis_labels)
-            ):
-                raise GlotaranModelError(
-                    f"Ctilde dataset '{label}' basis must match unique source CLP labels."
-                )
-            basis_labels = requested
+        basis_labels = self._basis_labels(label, supplied, time, list(basis.clp_axis))
         clp_dim = "amplitude_label" if "amplitude_label" in clp.dims else "clp_label"
         try:
             etilde = (
@@ -131,9 +118,8 @@ class CtildeObjective:
                 .transpose("spectral", "basis")
             )
         except (KeyError, ValueError) as exc:
-            raise GlotaranModelError(
-                "Ctilde source CLPs must match the reduced kinetic basis."
-            ) from exc
+            msg = "Ctilde source CLPs must match the reduced kinetic basis."
+            raise GlotaranModelError(msg) from exc
         ctilde = xr.DataArray(
             basis.array, dims=("time", "basis"), coords={"time": time, "basis": basis.clp_axis}
         ).sel(basis=basis_labels)
@@ -155,7 +141,32 @@ class CtildeObjective:
         )
         return observed, ctilde, etilde, auxiliary_data, residual, weighted
 
-    def _source_spectra(self):
+    @staticmethod
+    def _basis_labels(
+        label: str, supplied: xr.Dataset | None, time: np.ndarray, basis_labels: list[str]
+    ) -> list[str]:
+        if supplied is None:
+            return basis_labels
+        if not isinstance(supplied, xr.Dataset) or "data" not in supplied:
+            msg = f"Ctilde dataset '{label}' must contain data."
+            raise GlotaranModelError(msg)
+        if set(supplied["data"].dims) != {"time", "basis"}:
+            msg = f"Ctilde dataset '{label}' must have time and basis dimensions."
+            raise GlotaranModelError(msg)
+        if not np.array_equal(supplied["time"].to_numpy(), time):
+            msg = f"Ctilde dataset '{label}' time coordinates must match the source in order."
+            raise GlotaranModelError(msg)
+        requested = [str(value) for value in supplied["basis"].to_numpy()]
+        if (
+            len(set(requested)) != len(requested)
+            or len(set(basis_labels)) != len(basis_labels)
+            or set(requested) != set(basis_labels)
+        ):
+            msg = f"Ctilde dataset '{label}' basis must match unique source CLP labels."
+            raise GlotaranModelError(msg)
+        return requested
+
+    def _source_spectra(self) -> dict[str, xr.DataArray]:
         """Collect resolved source CLPs without constructing result datasets or SVDs."""
         matrices = self._inner.calculate_matrices()
         reduced = self._inner.calculate_reduced_matrices(matrices)
@@ -189,7 +200,7 @@ class CtildeObjective:
             )
         }
 
-    def calculate(self):
+    def calculate(self) -> np.ndarray:
         base = self._inner.calculate()
         source_spectra = self._source_spectra()
         penalties = [base]
@@ -200,7 +211,7 @@ class CtildeObjective:
             penalties.append(weighted.T.ravel())
         return np.concatenate(penalties)
 
-    def get_result(self):
+    def get_result(self) -> OptimizationObjectiveResult:
         result = self._inner.get_result()
         for label, (model, element) in self._auxiliary.items():
             source_result = result.optimization_results[element.source_dataset]
@@ -247,5 +258,5 @@ class CtildeObjective:
             additional_penalty=result.additional_penalty,
         )
 
-    def get_clp_penalty_diagnostics(self):
+    def get_clp_penalty_diagnostics(self) -> list[EqualAreaPenaltyDiagnostic]:
         return self._inner.get_clp_penalty_diagnostics()

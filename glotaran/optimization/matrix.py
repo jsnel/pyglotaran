@@ -125,18 +125,25 @@ class OptimizationMatrix:
 
         entries = list(element_iterator(model))
         normalize = (
-            model.normalize_global_element_scales if global_matrix else model.normalize_element_scales
+            model.normalize_global_element_scales
+            if global_matrix
+            else model.normalize_element_scales
         )
         scales = model.global_element_scale if global_matrix else model.element_scale
         if normalize and scales is not None:
             labels = {element.label for _, element in entries}
             if set(scales) != labels:
-                raise ValueError('Normalized element scales must name every element exactly once')
-            values = [float(getattr(scale, 'value', scale)) for scale, _ in entries]
+                msg = "Normalized element scales must name every element exactly once"
+                raise ValueError(msg)
+            values = [float(getattr(scale, "value", scale)) for scale, _ in entries]
             scale_sum = sum(values)
             if not np.isfinite(scale_sum) or scale_sum == 0:
-                raise ValueError('Element scale sum must be finite and nonzero')
-            entries = [(value / scale_sum, element) for value, (_, element) in zip(values, entries, strict=True)]
+                msg = "Element scale sum must be finite and nonzero"
+                raise ValueError(msg)
+            entries = [
+                (value / scale_sum, element)
+                for value, (_, element) in zip(values, entries, strict=True)
+            ]
         matrices = [
             cls.from_element(scale, element, model, global_axis, model_axis)  # type:ignore[arg-type]
             for scale, element in entries
@@ -175,14 +182,17 @@ class OptimizationMatrix:
         """Optionally align paired global columns to the model's CLP labels."""
         if not model.align_paired_clp_labels:
             return global_matrix
-        if (len(set(local.clp_axis)) != len(local.clp_axis)
-                or len(set(global_matrix.clp_axis)) != len(global_matrix.clp_axis)
-                or set(local.clp_axis) != set(global_matrix.clp_axis)):
-            raise GlotaranModelError(
-                "Paired label alignment requires matching unique model and global CLP labels."
-            )
+        if (
+            len(set(local.clp_axis)) != len(local.clp_axis)
+            or len(set(global_matrix.clp_axis)) != len(global_matrix.clp_axis)
+            or set(local.clp_axis) != set(global_matrix.clp_axis)
+        ):
+            msg = "Paired label alignment requires matching unique model and global CLP labels."
+            raise GlotaranModelError(msg)
         order = [global_matrix.clp_axis.index(label) for label in local.clp_axis]
-        return replace(global_matrix, clp_axis=list(local.clp_axis), array=global_matrix.array[..., order])
+        return replace(
+            global_matrix, clp_axis=list(local.clp_axis), array=global_matrix.array[..., order]
+        )
 
     @classmethod
     def from_global_data(

@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 import xarray as xr
 
 from glotaran.builtin.elements.ctilde import CtildeElement
+from glotaran.io import load_result
+from glotaran.model.errors import GlotaranModelError
+from glotaran.model.errors import GlotaranUserError
+from glotaran.model.experiment_model import ExperimentModel
+from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
+from glotaran.project import Project
+from glotaran.project.record import read_record_file
 from glotaran.project.scheme import Scheme
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_observations_refresid_uses_estimated_concentrations():
@@ -33,7 +45,7 @@ def test_observations_refresid_uses_estimated_concentrations():
     )
 
 
-def make_scheme(relation_interval=None):
+def make_scheme(relation_interval: list[list[float]] | None = None):
     relation = {"source": "a", "target": "b", "parameter": "relation.factor"}
     if relation_interval is not None:
         relation["interval"] = relation_interval
@@ -129,8 +141,6 @@ def test_ctilde_source_respects_normalized_element_scale():
 
 
 def test_auxiliary_does_not_add_free_clps():
-    from glotaran.optimization.optimization import Optimization
-
     scheme = make_scheme()
     scheme._load_data({"source": input_data()})
     optimization = Optimization(
@@ -145,8 +155,6 @@ def test_auxiliary_does_not_add_free_clps():
 
 
 def test_weighted_direct_residual_updates_with_parameters():
-    from glotaran.optimization.optimization import Optimization
-
     scheme = make_scheme()
     noisy = input_data()
     noisy["data"][2, 0] += 0.25
@@ -180,7 +188,7 @@ def test_source_missing_is_rejected():
         make_scheme().optimize(params(), {}, dry_run=True, verbose=False, raise_exception=True)
 
 
-def supplied_ctilde(basis=("b", "a")):
+def supplied_ctilde(basis: tuple[str, str] = ("b", "a")):
     return xr.Dataset(
         {
             "data": (("time", "basis"), np.full((5, 2), 42.0)),
@@ -197,16 +205,17 @@ def supplied_ctilde_scheme():
 
 
 def test_supplied_ctilde_basis_and_weights_are_used_but_values_are_generated():
-    from glotaran.optimization.optimization import Optimization
-
     scheme = supplied_ctilde_scheme()
     source = input_data()
     source["data"][2, 0] += 0.25
     supplied = supplied_ctilde()
     scheme._load_data({"source": source, "auxiliary": supplied})
     optimization = Optimization(
-        models=list(scheme.experiments.values()), parameters=params(),
-        library=scheme.library, verbose=False, raise_exception=True,
+        models=list(scheme.experiments.values()),
+        parameters=params(),
+        library=scheme.library,
+        verbose=False,
+        raise_exception=True,
     )
     objective = optimization._objectives[0]
     residual = objective.calculate()
@@ -216,18 +225,18 @@ def test_supplied_ctilde_basis_and_weights_are_used_but_values_are_generated():
     assert np.linalg.norm(auxiliary.residuals) > 0
     np.testing.assert_allclose(
         residual[-auxiliary.residuals.size :],
-        (auxiliary.residuals * supplied.weight).values.T.ravel(), atol=1e-12,
+        (auxiliary.residuals * supplied.weight).values.T.ravel(),
+        atol=1e-12,
     )
-    natural = supplied_ctilde_scheme().optimize(
-        params(), {"source": source}, dry_run=True, verbose=False, raise_exception=True
-    ).optimization_results["auxiliary"]
+    natural = (
+        supplied_ctilde_scheme()
+        .optimize(params(), {"source": source}, dry_run=True, verbose=False, raise_exception=True)
+        .optimization_results["auxiliary"]
+    )
     xr.testing.assert_allclose(auxiliary.input_data.sel(basis=["a", "b"]), natural.input_data)
 
 
-def test_supplied_ctilde_project_record_and_recompute(tmp_path):
-    from glotaran.project import Project
-    from glotaran.project.record import read_record_file
-
+def test_supplied_ctilde_project_record_and_recompute(tmp_path: Path):
     project = Project.start(tmp_path)
     datasets = {"source": input_data(), "auxiliary": supplied_ctilde()}
     result = project.optimize(
@@ -241,8 +250,6 @@ def test_supplied_ctilde_project_record_and_recompute(tmp_path):
     actual = recomputed.optimization_results["auxiliary"]
     xr.testing.assert_allclose(expected.input_data, actual.input_data)
     xr.testing.assert_allclose(expected.residuals, actual.residuals)
-    from glotaran.model.errors import GlotaranUserError
-
     altered = dict(datasets)
     altered["auxiliary"] = datasets["auxiliary"].assign_coords(basis=["a", "b"])
     with pytest.raises(GlotaranUserError, match="basis coordinate labels changed"):
@@ -250,9 +257,7 @@ def test_supplied_ctilde_project_record_and_recompute(tmp_path):
 
 
 @pytest.mark.parametrize("axis", ["time", "basis", "duplicate"])
-def test_supplied_ctilde_mismatched_axes_are_rejected(axis):
-    from glotaran.model.errors import GlotaranModelError
-
+def test_supplied_ctilde_mismatched_axes_are_rejected(axis: str):
     supplied = supplied_ctilde()
     if axis == "time":
         supplied = supplied.assign_coords(time=np.arange(5.0)[::-1])
@@ -260,16 +265,17 @@ def test_supplied_ctilde_mismatched_axes_are_rejected(axis):
         supplied = supplied.assign_coords(basis=["a", "unknown"])
     else:
         supplied = supplied.assign_coords(basis=["a", "a"])
-    with pytest.raises(GlotaranModelError, match="Ctilde dataset 'auxiliary'.*(time|basis)"):
+    with pytest.raises(GlotaranModelError, match=r"Ctilde dataset 'auxiliary'.*(time|basis)"):
         supplied_ctilde_scheme().optimize(
-            params(), {"source": input_data(), "auxiliary": supplied},
-            dry_run=True, verbose=False, raise_exception=True,
+            params(),
+            {"source": input_data(), "auxiliary": supplied},
+            dry_run=True,
+            verbose=False,
+            raise_exception=True,
         )
 
 
 def test_source_in_other_experiment_is_rejected():
-    from glotaran.model.experiment_model import ExperimentModel
-
     scheme = make_scheme()
     experiment = scheme.experiments["one"]
     scheme.experiments["other"] = ExperimentModel(
@@ -289,7 +295,7 @@ def test_source_in_other_experiment_is_rejected():
 def test_ctilde_uncertainty_is_rejected():
     scheme = make_scheme()
     scheme.experiments["one"].residual_function = "variable_projection"
-    with pytest.raises(ValueError, match="CLP standard errors.*Ctilde"):
+    with pytest.raises(ValueError, match=r"CLP standard errors.*Ctilde"):
         scheme.optimize(
             params(),
             {"source": input_data()},
@@ -300,9 +306,7 @@ def test_ctilde_uncertainty_is_rejected():
         )
 
 
-def test_ctilde_diagnostics_are_saved_and_reloaded(tmp_path):
-    from glotaran.io import load_result
-
+def test_ctilde_diagnostics_are_saved_and_reloaded(tmp_path: Path):
     result = make_scheme().optimize(
         params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True
     )
@@ -314,10 +318,7 @@ def test_ctilde_diagnostics_are_saved_and_reloaded(tmp_path):
         xr.testing.assert_allclose(actual[name], expected[name])
 
 
-def test_project_records_and_recomputes_without_generated_input(tmp_path):
-    from glotaran.project import Project
-    from glotaran.project.record import read_record_file
-
+def test_project_records_and_recomputes_without_generated_input(tmp_path: Path):
     project = Project.start(tmp_path)
     source = input_data()
     result = project.optimize(

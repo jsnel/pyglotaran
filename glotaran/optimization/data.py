@@ -431,7 +431,8 @@ class LinkedFullOptimizationData:
         }
 
     def update_generated_data(self) -> bool:
-        return any([data.update_generated_data() for data in self.data.values()])
+        # Every generated dataset must be updated, even after one returns True.
+        return any([data.update_generated_data() for data in self.data.values()])  # noqa: C419
 
 
 class LinkedOptimizationData(OptimizationDataProvider):

@@ -367,7 +367,7 @@ def resolve_parameter(
     return parameter
 
 
-def resolve_item_parameters[ItemT: Item](  # noqa: C901
+def resolve_item_parameters[ItemT: Item](
     item: ItemT, parameters: Parameters, initial: Parameters | None = None
 ) -> ItemT:
     resolved: dict[str, Any] = {}

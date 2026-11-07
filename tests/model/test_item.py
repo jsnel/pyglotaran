@@ -131,16 +131,14 @@ def test_nested_parameter_issues_and_resolution():
 
 
 def test_pep695_parameter_alias_resolves_spectral_shape():
-    from glotaran.builtin.elements.spectral.shape import SpectralShapeGaussian
+    from glotaran.builtin.elements.spectral.shape import SpectralShapeGaussian  # noqa: PLC0415
 
     shape = SpectralShapeGaussian(
         type="gaussian", amplitude="amplitude", location="location", width="width"
     )
     issues = get_item_issues(shape, Parameters.empty())
     assert len(issues) == 3
-    parameters = Parameters.from_list(
-        [["amplitude", 2.0], ["location", 650.0], ["width", 20.0]]
-    )
+    parameters = Parameters.from_list([["amplitude", 2.0], ["location", 650.0], ["width", 20.0]])
     resolved = resolve_item_parameters(shape, Parameters.empty(), parameters)
     assert isinstance(resolved.amplitude, Parameter)
     assert isinstance(resolved.location, Parameter)

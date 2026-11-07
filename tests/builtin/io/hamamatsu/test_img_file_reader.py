@@ -198,7 +198,6 @@ def test_load_simulated_measurement_variants(
 
 
 def test_load_img_public_api_prepares_svd(tmp_path: Path):
-
     path = tmp_path / "public.img"
     _write_img(path, np.arange(12).reshape(4, 3))
     dataset = load_dataset(path)

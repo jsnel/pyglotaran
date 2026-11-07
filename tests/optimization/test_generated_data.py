@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -13,6 +15,9 @@ from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.project.project import Project
 from glotaran.project.scheme import Scheme
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 TIME = np.arange(0.0, 50.0, 1.0)
 SPECTRAL = np.arange(600.0, 701.0, 5.0)
@@ -154,12 +159,16 @@ def test_missing_measured_data_is_still_rejected():
         scheme.optimize(make_parameters(655.0), {}, verbose=False)
 
 
-def test_project_records_and_recomputes_generated_data(tmp_path):
+def test_project_records_and_recomputes_generated_data(tmp_path: Path):
     project = Project.start(tmp_path / "project")
     scheme = make_scheme()
     result = project.optimize(
-        scheme, make_parameters(655.0), {"measured": measured_data()},
-        maximum_number_function_evaluations=2, verbose=False, raise_exception=True,
+        scheme,
+        make_parameters(655.0),
+        {"measured": measured_data()},
+        maximum_number_function_evaluations=2,
+        verbose=False,
+        raise_exception=True,
     )
     assert result.record is not None
     record = load_dict(result.record.path / "record.yml", is_file=True)
@@ -170,7 +179,7 @@ def test_project_records_and_recomputes_generated_data(tmp_path):
     assert recomputed.optimization_info.cost == pytest.approx(result.optimization_info.cost)
 
 
-def test_project_rejects_missing_measured_data(tmp_path):
+def test_project_rejects_missing_measured_data(tmp_path: Path):
     project = Project.start(tmp_path / "project")
     with pytest.raises(GlotaranUserError, match="'measured'"):
         project.optimize(make_scheme(), make_parameters(655.0), {}, verbose=False)

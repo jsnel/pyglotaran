@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -68,15 +69,14 @@ def test_parameter_penalty_near_zero_has_constant_length_and_warns_once():
 
 
 def test_parameter_penalty_is_appended_once_across_experiments():
-    from types import SimpleNamespace
-
     optimization = make_optimization()
-    optimization._objectives = [  # noqa: SLF001
-        SimpleNamespace(calculate=lambda: np.array([10.])),
-        SimpleNamespace(calculate=lambda: np.array([20., 30.])),
+    optimization._objectives = [
+        SimpleNamespace(calculate=lambda: np.array([10.0])),
+        SimpleNamespace(calculate=lambda: np.array([20.0, 30.0])),
     ]
-    np.testing.assert_allclose(optimization.objective_function(np.array([6.])),
-                               [10., 20., 30., 1.5, -1.])
+    np.testing.assert_allclose(
+        optimization.objective_function(np.array([6.0])), [10.0, 20.0, 30.0, 1.5, -1.0]
+    )
     assert optimization.cost_history[-1] == pytest.approx((100 + 400 + 900 + 2.25 + 1) / 2)
 
 
