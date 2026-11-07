@@ -119,6 +119,24 @@ def test_generated_direct_residual_uses_source_relations_and_weights():
     np.testing.assert_array_equal(auxiliary.fit_decomposition.clp.values, [[1.0]])
 
 
+def test_refresid_svd_reconstructs_spectral_residual():
+    source = input_data()
+    source["data"][2, 0] += 0.25
+    result = make_scheme().optimize(
+        params(), {"source": source}, dry_run=True, verbose=False, raise_exception=True
+    )
+    details = result.optimization_results["auxiliary"].elements["ctilde_model"]
+    left = details.refresid_left_singular_vectors
+    values = details.refresid_singular_values
+    right = details.refresid_right_singular_vectors
+    assert left.dims == ("time", "left_singular_value_index")
+    assert values.dims == ("singular_value_index",)
+    assert right.dims == ("spectral", "right_singular_value_index")
+    np.testing.assert_allclose(
+        (left.values * values.values) @ right.values.T, details.refresid.values, atol=1e-12
+    )
+
+
 def test_ctilde_source_respects_normalized_element_scale():
     reference = make_scheme().optimize(
         params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True

@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 
 from glotaran.builtin.elements.ctilde import CtildeElement
+from glotaran.io.prepare_dataset import add_svd_to_dataset
 from glotaran.model.errors import GlotaranModelError
 from glotaran.optimization.data import LinkedOptimizationData
 from glotaran.optimization.data import OptimizationData
@@ -231,6 +232,7 @@ class CtildeObjective:
             auxiliary_element = xr.Dataset(
                 {"Ctilde": ctilde, "Etilde": etilde, "refresid": observed["refresid"]}
             )
+            add_svd_to_dataset(auxiliary_element, name="refresid")
             auxiliary_element.attrs["element_uid"] = full_plugin_name(element)
             source_result.elements[element.label] = xr.Dataset(
                 {"Ctilde": ctilde, "Etilde": etilde},
