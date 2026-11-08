@@ -342,11 +342,6 @@ class Optimization:
             # Ctilde objectives are rejected when CLP uncertainty is requested.
             objective = cast("OptimizationObjective", raw_objective)
 
-            def evaluate_at(
-                candidate: Parameters, current_objective: OptimizationObjective = objective
-            ) -> dict[str, OptimizationResult]:
-                return self._evaluate_objective_at(current_objective, candidate)
-
             standard_errors = calculate_clp_standard_error(
                 optimization_objective=objective,
                 parameters=self._parameters,
@@ -354,7 +349,6 @@ class Optimization:
                 covariance_matrix=covariance,
                 settings=settings,
                 base_results=objective_result.optimization_results,
-                evaluate_at=evaluate_at,
             )
             if standard_errors:
                 optimization_info.clp_standard_error_method = "linear_plus_nonlinear_propagation"
@@ -368,23 +362,6 @@ class Optimization:
                 result.fit_decomposition = result.fit_decomposition.model_copy(
                     update={"clp_standard_error": error}
                 )
-
-    def _evaluate_objective_at(
-        self, objective: OptimizationObjective, candidate: Parameters
-    ) -> dict[str, OptimizationResult]:
-        """Evaluate an objective at copied parameter values and restore the fit state."""
-        original_values = {
-            parameter.label: parameter.value for parameter in self._parameters.all()
-        }
-        try:
-            for parameter in candidate.all():
-                self._parameters.get(parameter.label).value = parameter.value
-            self._parameters.update_parameter_expression()
-            return objective.get_result().optimization_results
-        finally:
-            for label, value in original_values.items():
-                self._parameters.get(label).value = value
-            self._parameters.update_parameter_expression()
 
     def dry_run(self) -> tuple[Parameters, dict[str, OptimizationResult], OptimizationInfo]:
         termination_reason = "Dry run."

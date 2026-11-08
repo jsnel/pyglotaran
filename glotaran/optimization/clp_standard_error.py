@@ -5,11 +5,10 @@ solved inside every objective evaluation, so their uncertainty has two parts: th
 least-squares covariance at the optimum and the covariance propagated through the
 nonlinear model.  This module keeps that calculation separate from result construction.
 
-The finite-difference evaluator supplied by
-:class:`~glotaran.optimization.optimization.Optimization` temporarily updates the parameter
-objects shared by an objective. It restores every value in a ``finally`` block, including when
-matrix construction or result creation raises. Callers that already have a pure evaluator can
-pass it through ``evaluate_at`` instead.
+The default finite-difference evaluator temporarily updates the parameter objects shared
+by an objective. It restores every value in a ``finally`` block, including when matrix
+construction or result creation raises. Callers can also pass an evaluator through
+``evaluate_at``.
 """
 
 from __future__ import annotations
@@ -253,12 +252,10 @@ def _calculate_linear_variance(
     data = objective.data
     if isinstance(data, LinkedFullOptimizationData):
         return _calculate_linked_full_linear_variance(objective, clps)
-    if isinstance(data, OptimizationData):
-        if data.is_global:
-            return _calculate_global_linear_variance(objective, clps)
-        return _calculate_unlinked_linear_variance(objective, clps)
-    if isinstance(data, LinkedOptimizationData):
-        return _calculate_linked_linear_variance(objective, clps)
+    if isinstance(data, OptimizationData) and data.is_global:
+        return _calculate_global_linear_variance(objective, clps)
+    if isinstance(data, OptimizationData | LinkedOptimizationData):
+        return _calculate_sliced_linear_variance(objective, clps)
     return {label: np.zeros(clp.shape, dtype=float) for label, clp in clps.items()}
 
 
@@ -314,21 +311,19 @@ def _calculate_global_linear_variance(
                         ]
         else:
             values = variances.reshape((len(global_matrix.clp_axis), len(model_matrix.clp_axis)))
-        result[label] = _align_variance_to_clp(values, clp)
+        result[label] = values.reshape(clp.shape)
     return result
 
 
-def _calculate_unlinked_linear_variance(
+def _calculate_sliced_linear_variance(
     objective: OptimizationObjective,
     clps: Mapping[str, xr.DataArray],
 ) -> dict[str, np.ndarray]:
     data = objective.data
-    assert isinstance(data, OptimizationData)
+    assert isinstance(data, OptimizationData | LinkedOptimizationData)
     matrices = objective.calculate_matrices()
     reduced_matrices = objective.calculate_reduced_matrices(matrices)
-    label = next(iter(clps))
-    clp = clps[label]
-    values = np.zeros(clp.shape, dtype=float)
+    result = {label: np.zeros(clp.shape, dtype=float) for label, clp in clps.items()}
     for index, (matrix, reduced_matrix, data_slice) in enumerate(
         zip(matrices, reduced_matrices, data.data_slices, strict=True)
     ):
@@ -344,47 +339,18 @@ def _calculate_unlinked_linear_variance(
             objective.model.clp_relations,
         )
         full_variance = np.diag(expansion @ reduced_covariance @ expansion.T)
-        values[index, :] = _map_variance(matrix.clp_axis, full_variance, clp, index)
-    return {label: values}
-
-
-def _calculate_linked_linear_variance(
-    objective: OptimizationObjective,
-    clps: Mapping[str, xr.DataArray],
-) -> dict[str, np.ndarray]:
-    data = objective.data
-    assert isinstance(data, LinkedOptimizationData)
-    matrices = objective.calculate_matrices()
-    reduced_matrices = objective.calculate_reduced_matrices(matrices)
-    result = {label: np.zeros(clp.shape, dtype=float) for label, clp in clps.items()}
-    for aligned_index, (matrix, reduced_matrix, data_slice) in enumerate(
-        zip(matrices, reduced_matrices, data.data_slices, strict=True)
-    ):
-        estimation = OptimizationEstimation.calculate(
-            reduced_matrix.array, data_slice, "variable_projection"
-        )
-        sigma_squared = _residual_variance(estimation.residual, reduced_matrix.array.shape[1])
-        reduced_covariance = sigma_squared * _safe_pinv_xtx(reduced_matrix.array)
-        expansion = _expansion_matrix(
-            matrix.clp_axis,
-            reduced_matrix.clp_axis,
-            float(data.global_axis[aligned_index]),
-            objective.model.clp_relations,
-        )
-        full_variance = np.diag(expansion @ reduced_covariance @ expansion.T)
-        group_label = data.group_labels[aligned_index]
-        group = data.group_definitions[group_label]
-        positions = data.data_indices[aligned_index]
-        for dataset_position, dataset_label in enumerate(group):
-            if dataset_label not in result:
-                continue
-            dataset_index = int(positions[dataset_position])
-            result[dataset_label][dataset_index, :] = _map_variance(
-                matrix.clp_axis,
-                full_variance,
-                clps[dataset_label],
-                dataset_index,
-            )
+        positions: np.ndarray | list[int]
+        if isinstance(data, LinkedOptimizationData):
+            group = data.group_definitions[data.group_labels[index]]
+            positions = data.data_indices[index]
+        else:
+            group = [next(iter(clps))]
+            positions = [index]
+        for label, position in zip(group, positions, strict=True):
+            if label in result:
+                result[label][int(position), :] = _map_variance(
+                    matrix.clp_axis, full_variance, clps[label]
+                )
     return result
 
 
@@ -392,9 +358,7 @@ def _map_variance(
     full_labels: list[str],
     full_variance: np.ndarray,
     clp: xr.DataArray,
-    index: int,
 ) -> np.ndarray:
-    del index  # The index is part of the call contract for future index-dependent coordinates.
     amplitude_labels = clp.coords.get("amplitude_label")
     if amplitude_labels is None:
         return full_variance
@@ -405,12 +369,6 @@ def _map_variance(
         ],
         dtype=float,
     )
-
-
-def _align_variance_to_clp(values: np.ndarray, clp: xr.DataArray) -> np.ndarray:
-    if values.shape == clp.shape:
-        return values
-    return np.asarray(values).reshape(clp.shape)
 
 
 def _expansion_matrix(
