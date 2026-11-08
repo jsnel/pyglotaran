@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from typing import TypeIs
 from typing import cast
 
 import numpy as np
@@ -25,7 +26,23 @@ from glotaran.plugin_system.base_registry import full_plugin_name
 if TYPE_CHECKING:
     from glotaran.model.clp_penalties import EqualAreaPenaltyDiagnostic
     from glotaran.model.data_model import DataModel
+    from glotaran.model.element import Element
     from glotaran.model.experiment_model import ExperimentModel
+    from glotaran.optimization.estimation import OptimizationEstimation
+
+
+def is_ctilde_element(element: Element | str) -> TypeIs[CtildeElement]:
+    """Identify an element that generates Ctilde observations."""
+    return isinstance(element, CtildeElement)
+
+
+def is_ctilde_experiment(model: ExperimentModel) -> bool:
+    """Return whether an experiment needs a Ctilde objective."""
+    return any(
+        is_ctilde_element(element)
+        for dataset in model.datasets.values()
+        for element in dataset.elements
+    )
 
 
 class CtildeObjective:
@@ -40,11 +57,10 @@ class CtildeObjective:
         self._add_svd = add_svd
         self._auxiliary = {}
         self._supplied = {}
+        self._supplied_basis: dict[str, list[str]] = {}
         measured = {}
         for label, data_model in model.datasets.items():
-            generators = [
-                element for element in data_model.elements if isinstance(element, CtildeElement)
-            ]
+            generators = [element for element in data_model.elements if is_ctilde_element(element)]
             if generators:
                 if (
                     len(generators) != 1
@@ -68,16 +84,25 @@ class CtildeObjective:
                     "in the same experiment."
                 )
                 raise GlotaranModelError(msg)
-            source = measured[element.source_dataset]
-            if source.global_elements:
-                msg = "Ctilde source must use a spectral CLP model, not a full model."
-                raise GlotaranModelError(msg)
-            if not isinstance(source.data, xr.Dataset) or not {"time", "spectral"}.issubset(
-                source.data["data"].dims
-            ):
-                msg = "Ctilde source must have time and spectral data dimensions."
-                raise GlotaranModelError(msg)
+            self._validate_source(label, measured[element.source_dataset])
         self._inner = OptimizationObjective(model.model_copy(update={"datasets": measured}))
+
+    def _validate_source(self, label: str, source: DataModel) -> None:
+        if source.global_elements:
+            msg = "Ctilde source must use a spectral CLP model, not a full model."
+            raise GlotaranModelError(msg)
+        if not isinstance(source.data, xr.Dataset) or not {"time", "spectral"}.issubset(
+            source.data["data"].dims
+        ):
+            msg = "Ctilde source must have time and spectral data dimensions."
+            raise GlotaranModelError(msg)
+        if source.data["spectral"].size == 0:
+            msg = "Ctilde source must have a nonempty spectral axis."
+            raise GlotaranModelError(msg)
+        if label in self._supplied:
+            self._supplied_basis[label] = self._validate_supplied_axes(
+                label, self._supplied[label], np.asarray(source.data["time"])
+            )
 
     @property
     def model(self) -> ExperimentModel:
@@ -87,23 +112,36 @@ class CtildeObjective:
     def data(self) -> OptimizationData | LinkedOptimizationData:
         return cast("OptimizationData | LinkedOptimizationData", self._inner.data)
 
+    def _calculate_source_matrices(self) -> dict[str, OptimizationMatrix]:
+        """Build each unweighted source basis once at the current parameters."""
+        matrices: dict[str, OptimizationMatrix] = {}
+        for _, element in self._auxiliary.values():
+            label = element.source_dataset
+            if label not in matrices:
+                model = self._model.datasets[label]
+                data = cast("xr.Dataset", model.data)
+                matrices[label] = OptimizationMatrix.from_data_model(
+                    model, np.asarray(data["spectral"]), np.asarray(data["time"]), None
+                )
+        return matrices
+
     def _calculate_auxiliary(
-        self, label: str, data_model: DataModel, element: CtildeElement, clp: xr.DataArray
+        self,
+        label: str,
+        data_model: DataModel,
+        element: CtildeElement,
+        clp: xr.DataArray,
+        source_matrix: OptimizationMatrix,
     ) -> tuple[xr.Dataset, xr.DataArray, xr.DataArray, OptimizationData, np.ndarray, np.ndarray]:
-        source_model = self._model.datasets[element.source_dataset]
-        source_data = cast("xr.Dataset", source_model.data)
+        source_data = cast("xr.Dataset", self._model.datasets[element.source_dataset].data)
         time = np.asarray(source_data["time"])
         spectral = np.asarray(source_data["spectral"])
-        source_matrix = OptimizationMatrix.from_data_model(source_model, spectral, time, None)
         if source_matrix.is_index_dependent:
             msg = "Ctilde source cannot have IRF dispersion."
             raise GlotaranModelError(msg)
         reduced = [
             source_matrix.reduce(index, self._model.clp_relations, copy=True) for index in spectral
         ]
-        if not reduced:
-            msg = "Ctilde source must have a nonempty spectral axis."
-            raise GlotaranModelError(msg)
         basis = reduced[0]
         if any(
             item.clp_axis != basis.clp_axis or not np.allclose(item.array, basis.array)
@@ -112,7 +150,13 @@ class CtildeObjective:
             msg = "Ctilde source relations must be constant over its spectral range."
             raise GlotaranModelError(msg)
         supplied = self._supplied.get(label)
-        basis_labels = self._basis_labels(label, supplied, time, list(basis.clp_axis))
+        basis_labels = self._supplied_basis.get(label, basis.clp_axis)
+        if supplied is not None and (
+            len(set(basis.clp_axis)) != len(basis.clp_axis)
+            or set(basis_labels) != set(basis.clp_axis)
+        ):
+            msg = f"Ctilde dataset '{label}' basis must match unique source CLP labels."
+            raise GlotaranModelError(msg)
         clp_dim = "amplitude_label" if "amplitude_label" in clp.dims else "clp_label"
         try:
             etilde = (
@@ -145,11 +189,7 @@ class CtildeObjective:
         return observed, ctilde, etilde, auxiliary_data, residual, weighted
 
     @staticmethod
-    def _basis_labels(
-        label: str, supplied: xr.Dataset | None, time: np.ndarray, basis_labels: list[str]
-    ) -> list[str]:
-        if supplied is None:
-            return basis_labels
+    def _validate_supplied_axes(label: str, supplied: xr.Dataset, time: np.ndarray) -> list[str]:
         if not isinstance(supplied, xr.Dataset) or "data" not in supplied:
             msg = f"Ctilde dataset '{label}' must contain data."
             raise GlotaranModelError(msg)
@@ -160,37 +200,33 @@ class CtildeObjective:
             msg = f"Ctilde dataset '{label}' time coordinates must match the source in order."
             raise GlotaranModelError(msg)
         requested = [str(value) for value in supplied["basis"].to_numpy()]
-        if (
-            len(set(requested)) != len(requested)
-            or len(set(basis_labels)) != len(basis_labels)
-            or set(requested) != set(basis_labels)
-        ):
+        if len(set(requested)) != len(requested):
             msg = f"Ctilde dataset '{label}' basis must match unique source CLP labels."
             raise GlotaranModelError(msg)
         return requested
 
-    def _source_spectra(self) -> dict[str, xr.DataArray]:
+    def _source_spectra(
+        self,
+        matrices: list[OptimizationMatrix],
+        estimations: list[OptimizationEstimation],
+        source_matrices: dict[str, OptimizationMatrix],
+    ) -> dict[str, xr.DataArray]:
         """Collect resolved source CLPs without constructing result datasets or SVDs."""
-        matrices = self._inner.calculate_matrices()
-        reduced = self._inner.calculate_reduced_matrices(matrices)
-        estimations = self._inner.resolve_estimations(
-            matrices, reduced, self._inner.calculate_estimations(reduced)
-        )
         provider = self.data
-        labels = {element.source_dataset for _, element in self._auxiliary.values()}
         if isinstance(provider, LinkedOptimizationData):
+            amplitude_axes = [matrix.clp_axis for matrix in matrices]
             return {
                 label: self._inner.get_dataset_amplitudes(
                     label,
-                    [matrix.clp_axis for matrix in matrices],
+                    amplitude_axes,
                     estimations,
-                    OptimizationMatrix.from_data(provider.data[label]).clp_axis,
+                    source_matrix.clp_axis,
                     provider.data[label].global_dimension,
                     provider.data[label].global_axis,
                 )
-                for label in labels
+                for label, source_matrix in source_matrices.items()
             }
-        label = next(iter(labels))
+        label = next(iter(source_matrices))
         matrix = matrices[0]
         return {
             label: xr.DataArray(
@@ -204,18 +240,23 @@ class CtildeObjective:
         }
 
     def calculate(self) -> np.ndarray:
-        base = self._inner.calculate()
-        source_spectra = self._source_spectra()
-        penalties = [base]
+        matrices, estimations, penalties = self._inner.calculate_linear_fit(resolve_clps=True)
+        source_matrices = self._calculate_source_matrices()
+        source_spectra = self._source_spectra(matrices, estimations, source_matrices)
         for label, (model, element) in self._auxiliary.items():
             *_, weighted = self._calculate_auxiliary(
-                label, model, element, source_spectra[element.source_dataset]
+                label,
+                model,
+                element,
+                source_spectra[element.source_dataset],
+                source_matrices[element.source_dataset],
             )
             penalties.append(weighted.T.ravel())
         return np.concatenate(penalties)
 
     def get_result(self) -> OptimizationObjectiveResult:
         result = self._inner.get_result()
+        source_matrices = self._calculate_source_matrices()
         for label, (model, element) in self._auxiliary.items():
             source_result = result.optimization_results[element.source_dataset]
             observed, ctilde, etilde, data, residual, weighted = self._calculate_auxiliary(
@@ -223,6 +264,7 @@ class CtildeObjective:
                 model,
                 element,
                 cast("FitDecomposition", source_result.fit_decomposition).clp,
+                source_matrices[element.source_dataset],
             )
             basis = observed["basis"]
             residual_array = xr.DataArray(

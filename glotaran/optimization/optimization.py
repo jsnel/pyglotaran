@@ -131,26 +131,18 @@ class Optimization:
         )
         self._validate_x_scale_size()
 
-        from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
         from glotaran.optimization.ctilde import CtildeObjective  # noqa: PLC0415
+        from glotaran.optimization.ctilde import is_ctilde_experiment  # noqa: PLC0415
 
-        if self.settings.compute_clp_standard_error and any(
-            isinstance(element, CtildeElement)
-            for experiment in models
-            for dataset in experiment.datasets.values()
-            for element in dataset.elements
-        ):
+        ctilde_experiments = [is_ctilde_experiment(experiment) for experiment in models]
+        if self.settings.compute_clp_standard_error and any(ctilde_experiments):
             msg = "CLP standard errors for Ctilde objectives are not supported."
             raise ValueError(msg)
         self._objectives = [
             CtildeObjective(experiment, add_svd=self.settings.add_svd)
-            if any(
-                isinstance(element, CtildeElement)
-                for dataset in experiment.datasets.values()
-                for element in dataset.elements
-            )
+            if is_ctilde
             else OptimizationObjective(experiment)
-            for experiment in models
+            for experiment, is_ctilde in zip(models, ctilde_experiments, strict=True)
         ]
         self._tee = TeeContext()
         self._verbose = verbose

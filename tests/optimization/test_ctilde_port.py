@@ -17,6 +17,7 @@ from glotaran.model.clp_relation import ClpRelation
 from glotaran.model.errors import GlotaranModelError
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
+from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.optimization import Optimization
 from glotaran.parameter import Parameters
 from glotaran.project import Project
@@ -318,6 +319,40 @@ def test_weighted_direct_residual_updates_with_parameters():
         first.elements["ctilde_model"].Ctilde, second.elements["ctilde_model"].Ctilde
     )
     assert not np.allclose(first.input_data, second.input_data)
+
+
+@pytest.mark.parametrize("linked", [False, True], ids=["single", "linked"])
+def test_ctilde_solves_source_clps_once_per_spectral_point(
+    linked: bool, monkeypatch: pytest.MonkeyPatch
+):
+    scheme = make_scheme()
+    experiment = scheme.experiments["one"]
+    source = input_data()
+    datasets = {"source": source}
+    if linked:
+        experiment.datasets["other"] = experiment.datasets["source"].model_copy(deep=True)
+        datasets["other"] = source.copy(deep=True)
+    scheme._load_data(datasets)
+    optimization = Optimization(
+        models=[experiment],
+        parameters=params(),
+        library=scheme.library,
+        verbose=False,
+        raise_exception=True,
+    )
+    calculate = OptimizationEstimation.calculate
+    calls = 0
+
+    def count_calculate(
+        matrix: np.ndarray, data: np.ndarray, residual_function: str
+    ) -> OptimizationEstimation:
+        nonlocal calls
+        calls += 1
+        return calculate(matrix, data, residual_function)
+
+    monkeypatch.setattr(OptimizationEstimation, "calculate", staticmethod(count_calculate))
+    assert np.isfinite(optimization.calculate_penalty()).all()
+    assert calls == source.sizes["spectral"]
 
 
 def test_source_missing_is_rejected():

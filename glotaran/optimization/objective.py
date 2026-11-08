@@ -700,29 +700,40 @@ class OptimizationObjective:
             self._model.residual_function,
         ).residual
 
-    def calculate(self) -> ArrayLike:
-        if isinstance(self._data, LinkedFullOptimizationData):
-            from glotaran.optimization.linked_full import calculate_linked_full  # noqa: PLC0415
-
-            return cast("ArrayLike", calculate_linked_full(self, result=False))
-        self._data.update_generated_data()
-        if isinstance(self._data, OptimizationData) and self._data.is_global:
-            return self.calculate_global_penalty()
+    def calculate_linear_fit(
+        self, *, resolve_clps: bool = False
+    ) -> tuple[list[OptimizationMatrix], list[OptimizationEstimation], list[ArrayLike]]:
+        """Solve the ordinary per-index CLPs and collect the fit residuals."""
+        data = self._data
+        assert isinstance(data, OptimizationData | LinkedOptimizationData)
+        data.update_generated_data()
         matrices = self.calculate_matrices()
         reduced_matrices = self.calculate_reduced_matrices(matrices)
         estimations = self.calculate_estimations(reduced_matrices)
 
         penalties = [e.residual for e in estimations]
-        if len(self._model.clp_penalties) > 0:
+        if resolve_clps or self._model.clp_penalties:
             estimations = self.resolve_estimations(matrices, reduced_matrices, estimations)
+        if self._model.clp_penalties:
             penalties.append(
                 calculate_clp_penalties(
                     matrices,
                     estimations,
-                    self._data.global_axis,
+                    data.global_axis,
                     self._model.clp_penalties,
                 )
             )
+        return matrices, estimations, penalties
+
+    def calculate(self) -> ArrayLike:
+        if isinstance(self._data, LinkedFullOptimizationData):
+            from glotaran.optimization.linked_full import calculate_linked_full  # noqa: PLC0415
+
+            return cast("ArrayLike", calculate_linked_full(self, result=False))
+        if isinstance(self._data, OptimizationData) and self._data.is_global:
+            self._data.update_generated_data()
+            return self.calculate_global_penalty()
+        _, _, penalties = self.calculate_linear_fit()
         return np.concatenate(penalties)
 
     @staticmethod

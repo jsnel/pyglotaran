@@ -88,22 +88,18 @@ class Scheme(BaseModel):
         )
 
     def _load_data(self, datasets: Mapping[str, xr.Dataset]) -> None:
-        from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
+        from glotaran.optimization.ctilde import is_ctilde_element  # noqa: PLC0415
 
         for experiment in self.experiments.values():
             for label, data_model in experiment.datasets.items():
                 if label in datasets:
                     data_model.data = datasets[label]
                 elif any(
-                    hasattr(
-                        self.library[element] if isinstance(element, str) else element,
-                        "calculate_data",
+                    hasattr(element, "calculate_data") or is_ctilde_element(element)
+                    for element in (
+                        self.library[entry] if isinstance(entry, str) else entry
+                        for entry in data_model.elements
                     )
-                    or isinstance(
-                        self.library[element] if isinstance(element, str) else element,
-                        CtildeElement,
-                    )
-                    for element in data_model.elements
                 ):
                     # Generated from the parameters during optimization.
                     data_model.data = None
