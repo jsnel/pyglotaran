@@ -290,7 +290,7 @@ def _calculate_global_linear_variance(
 ) -> dict[str, np.ndarray]:
     data = objective.data
     assert isinstance(data, OptimizationData)
-    model_matrix, global_matrix, full_matrix = OptimizationMatrix.from_global_data(data)
+    _, _, full_matrix = OptimizationMatrix.from_global_data(data)
     assert data.flat_data is not None
     estimation = OptimizationEstimation.calculate(
         full_matrix.array, data.flat_data, "variable_projection"
@@ -298,36 +298,9 @@ def _calculate_global_linear_variance(
     sigma_squared = _residual_variance(estimation.residual, full_matrix.array.shape[1])
     covariance = sigma_squared * _safe_pinv_xtx(full_matrix.array)
     variances = np.diag(covariance)
-    paired = is_data_model_single_amplitude(data.model)
-    model_labels = model_matrix.clp_axis
-    global_labels = global_matrix.clp_axis
-    full_labels = full_matrix.clp_axis
-    expected_shape = (len(global_labels), len(model_labels))
-    unambiguous_pairing = (
-        paired
-        and len(set(model_labels)) == len(model_labels)
-        and len(set(global_labels)) == len(global_labels)
-        and all("@" not in name for name in [*model_labels, *global_labels])
-    )
-    result: dict[str, np.ndarray] = {}
-    for label, clp in clps.items():
-        if unambiguous_pairing and clp.shape == expected_shape:
-            values = np.diag(variances)
-        elif paired:
-            # Keep the existing first-match lookup when plugin labels make the
-            # string form of a pair ambiguous.
-            values = np.zeros(clp.shape, dtype=float)
-            for global_index, global_label in enumerate(global_labels):
-                for model_index, model_label in enumerate(model_labels):
-                    full_label = f"{global_label}@{model_label}"
-                    if full_label in full_labels:
-                        values[global_index, model_index] = variances[
-                            full_labels.index(full_label)
-                        ]
-        else:
-            values = variances.reshape(expected_shape)
-        result[label] = values.reshape(clp.shape)
-    return result
+    if is_data_model_single_amplitude(data.model):
+        variances = np.diag(variances)
+    return {label: variances.reshape(clp.shape) for label, clp in clps.items()}
 
 
 def _calculate_sliced_linear_variance(

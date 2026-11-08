@@ -51,33 +51,22 @@ def test_compose_full_matrix(
 
 
 @pytest.mark.parametrize("dtype", [np.int64, np.float32])
-@pytest.mark.parametrize("extra_columns", [0, 66])
-def test_relation_expansion_preserves_dense_promotion_and_zero_targets(
-    dtype: type, extra_columns: int
-):
-    labels = ["a", "b", "c", "d", *(f"extra-{i}" for i in range(extra_columns))]
-    pairs = [(label, label) for label in labels]
+def test_relation_expansion_preserves_dense_promotion_and_zero_targets(dtype: type):
+    pairs = [(label, label) for label in ("a", "b", "c", "d")]
     relations = [
         ClpRelation(source="a", target="b", parameter=0.5),
         ClpRelation(source="a", target="c", parameter=0.0),
     ]
-    matrix = np.column_stack(
-        (
-            np.array([[2, 3, 4, 5], [7, -1, 0, 2]], dtype=dtype),
-            np.arange(2 * extra_columns, dtype=dtype).reshape(2, extra_columns),
-        )
-    )
-    kept = [0, *range(3, len(labels))]
-    dense = np.eye(len(labels))[:, kept]
-    dense[1, 0] = 0.5
-    amplitudes = np.pad(np.array([2, -3], dtype=dtype), (0, extra_columns))
-    covariance = np.pad(np.array([[5, 7], [7, 11]], dtype=dtype), (0, extra_columns))
+    matrix = np.array([[2, 3, 4, 5], [7, -1, 0, 2]], dtype=dtype)
+    dense = np.array([[1, 0], [0.5, 0], [0, 0], [0, 1]])
+    amplitudes = np.array([2, -3], dtype=dtype)
+    covariance = np.array([[5, 7], [7, 11]], dtype=dtype)
 
     expansion = _relation_expansion(pairs, relations, np.array([0.0, 1.0]), paired=True)
 
     assert expansion is not None
-    assert expansion.kept == kept
-    reduced = expansion.reduce(matrix.copy())
+    assert expansion.kept == [0, 3]
+    reduced = expansion.reduce(matrix)
     assert reduced.dtype == np.float64
     np.testing.assert_array_equal(reduced, matrix @ dense)
     np.testing.assert_array_equal(expansion.expand(amplitudes), dense @ amplitudes)
@@ -98,7 +87,7 @@ def _exponential(dimension: str, labels: list[str], rates: list[float]):
     )
 
 
-def test_ambiguous_paired_variance_keeps_first_string_label_match():
+def test_paired_variance_uses_column_order_when_combined_labels_collide():
     time = np.arange(3.0)
     spectral = np.arange(4.0)
     values = np.arange(12.0).reshape(3, 4)
@@ -128,9 +117,9 @@ def test_ambiguous_paired_variance_keeps_first_string_label_match():
 
     variance = _calculate_linear_variance(objective, {"data": decomposition.clp})["data"]
 
-    # Both fitted pairs serialize to "a@b@c". Historically both use its first variance.
+    # Both fitted pairs serialize to "a@b@c" but keep their own variances.
     assert covariance[0, 0] != pytest.approx(covariance[1, 1])
-    np.testing.assert_allclose(variance, np.eye(2) * covariance[0, 0])
+    np.testing.assert_allclose(variance, np.diag(np.diag(covariance)))
 
 
 def test_cartesian_design_without_relations_avoids_dense_identity():

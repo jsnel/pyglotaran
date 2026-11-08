@@ -24,9 +24,6 @@ if TYPE_CHECKING:
     from glotaran.optimization.objective import OptimizationObjective
 
 
-_MAX_RELATION_COEFFICIENTS = 4096
-
-
 @dataclass
 class _RelationExpansion:
     """Record which original columns remain and how to recover removed columns."""
@@ -35,21 +32,12 @@ class _RelationExpansion:
     relations: list[tuple[int, int, float]]
 
     def reduce(self, matrix: np.ndarray) -> np.ndarray:
-        column_count = matrix.shape[1]
-        if column_count * len(self.kept) <= _MAX_RELATION_COEFFICIENTS:
-            # Preserve the BLAS accumulation order for sensitive finite differences.
-            # The coefficient matrix is bounded and is only needed for actual relations.
-            positions = {index: position for position, index in enumerate(self.kept)}
-            coefficients = np.zeros((column_count, len(self.kept)), order="F")
-            coefficients[self.kept, np.arange(len(self.kept))] = 1.0
-            for source, target, coefficient in self.relations:
-                coefficients[target, positions[source]] = coefficient
-            return matrix @ coefficients
-        # Match the promotion of the previous float64 expansion matrix.
-        matrix = matrix.astype(np.result_type(matrix.dtype, np.float64), copy=False)
+        positions = {index: position for position, index in enumerate(self.kept)}
+        coefficients = np.zeros((matrix.shape[1], len(self.kept)), order="F")
+        coefficients[self.kept, np.arange(len(self.kept))] = 1.0
         for source, target, coefficient in self.relations:
-            matrix[:, source] += coefficient * matrix[:, target]
-        return matrix[:, self.kept]
+            coefficients[target, positions[source]] = coefficient
+        return matrix @ coefficients
 
     def expand(self, values: np.ndarray, *, variance: bool = False) -> np.ndarray:
         """Restore removed coefficients or marginal variances from their sole source."""
