@@ -165,7 +165,9 @@ class KineticElement(ExtendableElement, Kinetic):
                 scales,
                 independent[0].backsweep_period,
             )
-        if activation.normalize and not isinstance(activation, MultiMultiGaussianActivation):
+        if activation.normalize and not (
+            isinstance(activation, MultiMultiGaussianActivation) and activation.normalize_area
+        ):
             if index_dependent:
                 matrix /= np.sum(scales, axis=1)[:, None, None]
             else:
