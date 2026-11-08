@@ -12,6 +12,7 @@ from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import resolve_data_model
 from glotaran.model.errors import GlotaranUserError
 from glotaran.optimization.matrix import OptimizationMatrix
+from glotaran.optimization.matrix import compose_full_matrix
 
 if TYPE_CHECKING:
     from glotaran.model.data_model import DataModel
@@ -132,14 +133,15 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
                     "to have the same number of components."
                 )
                 raise GlotaranUserError(msg)
-            model_matrix = matrix.at_index(i).array
             if global_matrix.is_index_dependent:
                 msg = (
                     "Single-amplitude simulation does not support an index-dependent "
                     "global matrix."
                 )
                 raise GlotaranUserError(msg)
-            pair_matrix = model_matrix * global_matrix.array[i, :][np.newaxis, :]
+            _, pair_matrix = compose_full_matrix(
+                matrix, global_matrix, paired=True, global_index=i
+            )
             amplitudes = (
                 np.ones(pair_matrix.shape[1])
                 if clp is None

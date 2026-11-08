@@ -13,6 +13,7 @@ from glotaran.optimization.data import LinkedFullOptimizationData
 from glotaran.optimization.data import OptimizationData
 from glotaran.optimization.estimation import OptimizationEstimation
 from glotaran.optimization.matrix import OptimizationMatrix
+from glotaran.optimization.matrix import compose_full_matrix
 from glotaran.optimization.objective import FitDecomposition
 from glotaran.optimization.objective import OptimizationObjectiveResult
 from glotaran.optimization.objective import OptimizationResult
@@ -23,6 +24,45 @@ if TYPE_CHECKING:
     from glotaran.optimization.objective import OptimizationObjective
 
 
+_MAX_RELATION_COEFFICIENTS = 4096
+
+
+@dataclass
+class _RelationExpansion:
+    """Record which original columns remain and how to recover removed columns."""
+
+    kept: list[int]
+    relations: list[tuple[int, int, float]]
+
+    def reduce(self, matrix: np.ndarray) -> np.ndarray:
+        column_count = matrix.shape[1]
+        if column_count * len(self.kept) <= _MAX_RELATION_COEFFICIENTS:
+            # Preserve the BLAS accumulation order for sensitive finite differences.
+            # The coefficient matrix is bounded and is only needed for actual relations.
+            positions = {index: position for position, index in enumerate(self.kept)}
+            coefficients = np.zeros((column_count, len(self.kept)), order="F")
+            coefficients[self.kept, np.arange(len(self.kept))] = 1.0
+            for source, target, coefficient in self.relations:
+                coefficients[target, positions[source]] = coefficient
+            return matrix @ coefficients
+        # Match the promotion of the previous float64 expansion matrix.
+        matrix = matrix.astype(np.result_type(matrix.dtype, np.float64), copy=False)
+        for source, target, coefficient in self.relations:
+            matrix[:, source] += coefficient * matrix[:, target]
+        return matrix[:, self.kept]
+
+    def expand(self, values: np.ndarray, *, variance: bool = False) -> np.ndarray:
+        """Restore removed coefficients or marginal variances from their sole source."""
+        expanded = np.empty(
+            len(self.kept) + len(self.relations), dtype=np.result_type(values.dtype, np.float64)
+        )
+        expanded[self.kept] = values
+        for source, target, coefficient in self.relations:
+            value = coefficient * expanded[source]
+            expanded[target] = coefficient * value if variance else value
+        return expanded
+
+
 @dataclass
 class FullDataset:
     data: OptimizationData
@@ -30,7 +70,7 @@ class FullDataset:
     global_matrix: OptimizationMatrix
     pairs: list[tuple[str, str]]
     reduced_pairs: list[tuple[str, str]]
-    expansion: np.ndarray
+    expansion: _RelationExpansion | None
     matrix: np.ndarray
 
 
@@ -54,33 +94,18 @@ def _prepare_dataset(data: OptimizationData, relations: list[ClpRelation]) -> Fu
         raise ValueError(msg)
     if paired:
         global_matrix = OptimizationMatrix.align_paired_global(data.model, local, global_matrix)
-    pairs = (
-        list(zip(global_matrix.clp_axis, local.clp_axis, strict=True))
-        if paired
-        else [(g, m) for g in global_matrix.clp_axis for m in local.clp_axis]
-    )
+    pairs, matrix = compose_full_matrix(local, global_matrix, paired=paired)
     if len(set(pairs)) != len(pairs):
         msg = "Linked full models require unique CLP label pairs"
         raise ValueError(msg)
-    local_values = (
-        local.array
-        if local.is_index_dependent
-        else np.broadcast_to(local.array, (len(data.global_axis), *local.array.shape))
-    )
-    if paired:
-        matrix = (local_values * global_matrix.array[:, None, :]).reshape(-1, len(pairs))
-    else:
-        matrix = np.einsum("gmi,gj->gmji", local_values, global_matrix.array).reshape(
-            -1, len(pairs)
-        )
     if data.flat_weight is not None:
         matrix *= data.flat_weight[:, None]
-    expansion, reduced_pairs = _relation_expansion(
-        pairs, relations, data.global_axis, paired=paired
-    )
-    return FullDataset(
-        data, local, global_matrix, pairs, reduced_pairs, expansion, matrix @ expansion
-    )
+    expansion = _relation_expansion(pairs, relations, data.global_axis, paired=paired)
+    reduced_pairs = pairs
+    if expansion is not None:
+        matrix = expansion.reduce(matrix)
+        reduced_pairs = [pairs[index] for index in expansion.kept]
+    return FullDataset(data, local, global_matrix, pairs, reduced_pairs, expansion, matrix)
 
 
 def _relation_expansion(
@@ -89,11 +114,11 @@ def _relation_expansion(
     global_axis: np.ndarray,
     *,
     paired: bool,
-) -> tuple[np.ndarray, list[tuple[str, str]]]:
-    expansion = np.eye(len(pairs))
-    removed = []
+) -> _RelationExpansion | None:
+    if not paired:
+        return None
     applicable_relations = []
-    for relation in relations if paired else []:
+    for relation in relations:
         source, target = (relation.source, relation.source), (relation.target, relation.target)
         if source not in pairs or target not in pairs:
             continue
@@ -104,21 +129,21 @@ def _relation_expansion(
         if not any(applies):
             continue
         applicable_relations.append(relation)
+    if not applicable_relations:
+        return None
     targets = [relation.target for relation in applicable_relations]
     sources = [relation.source for relation in applicable_relations]
     if len(targets) != len(set(targets)) or set(targets) & set(sources):
         msg = "Chained or multiple CLP relations are unsupported"
         raise ValueError(msg)
+    indices = []
     for relation in applicable_relations:
         source, target = (relation.source, relation.source), (relation.target, relation.target)
         source_index, target_index = pairs.index(source), pairs.index(target)
-        expansion[target_index, source_index] = float(
-            getattr(relation.parameter, "value", relation.parameter)
-        )
-        removed.append(target_index)
-    keep = [i for i in range(len(pairs)) if i not in removed]
-    expansion = expansion[:, keep]
-    return expansion, [pairs[i] for i in keep]
+        coefficient = float(getattr(relation.parameter, "value", relation.parameter))
+        indices.append((source_index, target_index, coefficient))
+    removed = {target for _, target, _ in indices}
+    return _RelationExpansion([i for i in range(len(pairs)) if i not in removed], indices)
 
 
 def build_linked_full(
@@ -161,10 +186,9 @@ def calculate_linked_full(
         data, local, global_matrix = dataset.data, dataset.local, dataset.global_matrix
         assert data.flat_data is not None
         size = data.flat_data.size
-        values = (
-            dataset.expansion
-            @ estimation.clp[[aligned.index(pair) for pair in dataset.reduced_pairs]]
-        )
+        values = estimation.clp[[aligned.index(pair) for pair in dataset.reduced_pairs]]
+        if dataset.expansion is not None:
+            values = dataset.expansion.expand(values)
         shape = (len(global_matrix.clp_axis), len(local.clp_axis))
         clp_values = (
             np.diag(values)

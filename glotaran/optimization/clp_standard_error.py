@@ -272,8 +272,9 @@ def _calculate_linked_full_linear_variance(
     result = {}
     for label, dataset in datasets.items():
         indices = [aligned.index(pair) for pair in dataset.reduced_pairs]
-        reduced_covariance = covariance[np.ix_(indices, indices)]
-        variance = np.diag(dataset.expansion @ reduced_covariance @ dataset.expansion.T)
+        variance = covariance[indices, indices]
+        if dataset.expansion is not None:
+            variance = dataset.expansion.expand(variance, variance=True)
         clp = clps[label]
         result[label] = (
             np.diag(variance)
@@ -297,20 +298,34 @@ def _calculate_global_linear_variance(
     sigma_squared = _residual_variance(estimation.residual, full_matrix.array.shape[1])
     covariance = sigma_squared * _safe_pinv_xtx(full_matrix.array)
     variances = np.diag(covariance)
+    paired = is_data_model_single_amplitude(data.model)
+    model_labels = model_matrix.clp_axis
+    global_labels = global_matrix.clp_axis
     full_labels = full_matrix.clp_axis
+    expected_shape = (len(global_labels), len(model_labels))
+    unambiguous_pairing = (
+        paired
+        and len(set(model_labels)) == len(model_labels)
+        and len(set(global_labels)) == len(global_labels)
+        and all("@" not in name for name in [*model_labels, *global_labels])
+    )
     result: dict[str, np.ndarray] = {}
     for label, clp in clps.items():
-        if is_data_model_single_amplitude(data.model):
+        if unambiguous_pairing and clp.shape == expected_shape:
+            values = np.diag(variances)
+        elif paired:
+            # Keep the existing first-match lookup when plugin labels make the
+            # string form of a pair ambiguous.
             values = np.zeros(clp.shape, dtype=float)
-            for global_index, global_label in enumerate(global_matrix.clp_axis):
-                for model_index, model_label in enumerate(model_matrix.clp_axis):
+            for global_index, global_label in enumerate(global_labels):
+                for model_index, model_label in enumerate(model_labels):
                     full_label = f"{global_label}@{model_label}"
                     if full_label in full_labels:
                         values[global_index, model_index] = variances[
                             full_labels.index(full_label)
                         ]
         else:
-            values = variances.reshape((len(global_matrix.clp_axis), len(model_matrix.clp_axis)))
+            values = variances.reshape(expected_shape)
         result[label] = values.reshape(clp.shape)
     return result
 

@@ -208,7 +208,8 @@ class OptimizationMatrix:
         OptimizationMatrix,
         OptimizationMatrix,
     ]:
-        if is_data_model_single_amplitude(data.model) and not data.model.global_elements:
+        paired = is_data_model_single_amplitude(data.model)
+        if paired and not data.model.global_elements:
             msg = "A single-amplitude model requires global elements to be configured."
             raise GlotaranModelError(msg)
 
@@ -219,7 +220,7 @@ class OptimizationMatrix:
             msg = "Index dependent global matrices are not supported."
             raise GlotaranModelError(msg)
 
-        if is_data_model_single_amplitude(data.model):
+        if paired:
             if len(global_matrix.clp_axis) != len(matrix.clp_axis):
                 msg = (
                     "A single-amplitude model requires the model and global matrices to "
@@ -227,42 +228,8 @@ class OptimizationMatrix:
                 )
                 raise GlotaranModelError(msg)
             global_matrix = cls.align_paired_global(data.model, matrix, global_matrix)
-            clp_axis = [
-                f"{global_label}@{model_label}"
-                for global_label, model_label in zip(
-                    global_matrix.clp_axis, matrix.clp_axis, strict=True
-                )
-            ]
-            model_array = (
-                matrix.array
-                if matrix.is_index_dependent
-                else np.broadcast_to(
-                    matrix.array,
-                    (data.global_axis.size, matrix.model_axis_size, len(matrix.clp_axis)),
-                )
-            )
-            array = np.concatenate(
-                [
-                    model_array[i, :, :] * global_matrix.array[i, :][np.newaxis, :]
-                    for i in range(data.global_axis.size)
-                ]
-            )
-        else:
-            clp_axis = [
-                label
-                for gl in global_matrix.clp_axis
-                for label in [f"{gl}@{ml}" for ml in matrix.clp_axis]
-            ]
-            array = (
-                np.concatenate(
-                    [
-                        np.kron(global_matrix.array[i, :], matrix.array[i, :, :])
-                        for i in range(data.global_axis.size)
-                    ]
-                )
-                if matrix.is_index_dependent
-                else np.kron(global_matrix.array, matrix.array)
-            )
+        pairs, array = compose_full_matrix(matrix, global_matrix, paired=paired)
+        clp_axis = [f"{global_label}@{model_label}" for global_label, model_label in pairs]
 
         if data.flat_weight is not None:
             array *= data.flat_weight[:, np.newaxis]
@@ -435,3 +402,37 @@ class OptimizationMatrix:
             coords = {global_dim: global_axis} | coords
 
         return xr.DataArray(self.array, dims=coords.keys(), coords=coords)
+
+
+def compose_full_matrix(
+    local: OptimizationMatrix,
+    global_matrix: OptimizationMatrix,
+    *,
+    paired: bool,
+    global_index: int | None = None,
+) -> tuple[list[tuple[str, str]], np.ndarray]:
+    """Compose columns and flatten rows in global-then-local order.
+
+    The caller aligns paired columns and verifies that the global matrix is
+    index independent. A single global index avoids building the full design
+    matrix when simulation only needs one slice.
+    """
+    local_values = local.array
+    global_values = global_matrix.array
+    if global_index is not None:
+        global_values = global_values[global_index : global_index + 1]
+        if local.is_index_dependent:
+            local_values = local_values[global_index : global_index + 1]
+
+    if paired:
+        pairs = list(zip(global_matrix.clp_axis, local.clp_axis, strict=True))
+        array = local_values * global_values[:, np.newaxis, :]
+    else:
+        pairs = [(g, m) for g in global_matrix.clp_axis for m in local.clp_axis]
+        array = (
+            np.einsum("gmi,gj->gmji", local_values, global_values)
+            if local.is_index_dependent
+            else np.kron(global_values, local_values)
+        )
+
+    return pairs, array.reshape(global_values.shape[0] * local.model_axis_size, len(pairs))
