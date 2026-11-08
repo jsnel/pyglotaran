@@ -13,6 +13,7 @@ from glotaran.builtin.io.yml.utils import load_dict
 from glotaran.builtin.io.yml.utils import write_dict
 from glotaran.io import load_result
 from glotaran.io.interface import SAVING_OPTIONS_MINIMAL
+from glotaran.model.clp_relation import ClpRelation
 from glotaran.model.errors import GlotaranModelError
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
@@ -657,3 +658,41 @@ def test_spectrally_varying_relations_are_rejected():
         make_scheme([[490.0, 550.0]]).optimize(
             params(), {"source": input_data()}, dry_run=True, verbose=False, raise_exception=True
         )
+
+
+def test_ctilde_rechecks_initially_equal_relation_coefficients_after_parameter_update():
+    scheme = make_scheme()
+    experiment = scheme.experiments["one"]
+    experiment.clp_relations = [
+        ClpRelation(source="a", target="b", parameter="relation.low", interval=(490.0, 550.0)),
+        ClpRelation(source="a", target="b", parameter="relation.high", interval=(551.0, 610.0)),
+    ]
+    initial = Parameters.from_list(
+        [
+            ["rates.a", 0.4, {"vary": False}],
+            ["rates.b", 1.5, {"vary": False}],
+            ["relation.low", 1.0],
+            ["relation.high", 1.0],
+        ]
+    )
+    source = input_data()
+    scheme._load_data({"source": source})
+    optimization = Optimization(
+        models=[experiment],
+        parameters=initial,
+        library=scheme.library,
+        verbose=False,
+        raise_exception=True,
+    )
+
+    _, results, _ = optimization.dry_run()
+    details = results["auxiliary"].elements["ctilde_model"]
+    assert details.basis.values.tolist() == ["a"]
+    expected = 0.5 * (np.exp(-0.4 * source.time) + np.exp(-1.5 * source.time))
+    np.testing.assert_allclose(details.Ctilde.sel(basis="a"), expected, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(details.Etilde.sel(basis="a"), [1.0, 2.0], rtol=1e-12, atol=1e-12)
+
+    # The labels are unchanged, but the kinetic basis now differs between wavelengths.
+    optimization.parameters.get("relation.high").value = 2.0
+    with pytest.raises(GlotaranModelError, match="relations must be constant"):
+        optimization.calculate_penalty()
