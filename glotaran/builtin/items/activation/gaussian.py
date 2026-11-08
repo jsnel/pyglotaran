@@ -10,6 +10,7 @@ from typing import overload
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from glotaran.builtin.gaussian import calculate_skewed_gaussian_component
 from glotaran.builtin.items.activation.activation import Activation
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.errors import ItemIssue
@@ -259,24 +260,20 @@ class MultiGaussianActivation(Activation):
             raise GlotaranUserError(msg)
         return CubicSpline(knots, values, bc_type="natural")
 
-    def _width_dispersion(self, index: float, spline: CubicSpline | None) -> float:
+    def _width_dispersion(
+        self,
+        index: float,
+        spline: CubicSpline | None,
+        skewed_parameters: tuple[float, float, float, float] | None,
+    ) -> float:
+        transformed_index = self._dispersion_axis_value(index)
         correction = 0.0
         if spline is not None:
-            correction += float(spline(self._dispersion_axis_value(index)))
-        skewed_parameters = self._skewed_gaussian_parameters()
+            correction += float(spline(transformed_index))
         if skewed_parameters is not None:
-            amplitude, location, width, skewness = skewed_parameters
-            transformed_index = self._dispersion_axis_value(index)
-            if np.isclose(skewness, 0.0):
-                correction += amplitude * np.exp(
-                    -np.log(2) * np.square(2 * (transformed_index - location) / width)
-                )
-            else:
-                log_argument = 1 + 2 * skewness * (transformed_index - location) / width
-                if log_argument > 0:
-                    correction += amplitude * np.exp(
-                        -np.log(2) * np.square(np.log(log_argument) / skewness)
-                    )
+            correction += calculate_skewed_gaussian_component(
+                transformed_index, *skewed_parameters
+            )
         return correction
 
     def calculate_dispersion(self, axis: ArrayLike) -> ArrayLike:
@@ -301,13 +298,15 @@ class MultiGaussianActivation(Activation):
             center_columns += float(coefficient) * np.power(distance, i + 1)
         return center_columns
 
-    def is_index_dependent(self) -> bool:
+    def _has_non_skew_terms(self) -> bool:
         return (
             self.shift is not None
             or self.dispersion_center is not None
             or bool(self.width_dispersion_spline_values)
-            or self._skewed_gaussian_parameters() is not None
         )
+
+    def is_index_dependent(self) -> bool:
+        return self._has_non_skew_terms() or self._skewed_gaussian_parameters() is not None
 
     @overload
     def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
@@ -316,9 +315,12 @@ class MultiGaussianActivation(Activation):
         self, global_axis: ArrayLike
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
 
-    def parameters(  # noqa: C901, PLR0912
+    def parameters(
         self, global_axis: ArrayLike | None = None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
+        return self._apply_index_dependence(self._flatten_parameters(), global_axis)
+
+    def _flatten_parameters(self) -> list[GaussianActivationParameters]:
         centers = self.center if isinstance(self.center, list) else [self.center]
         widths = self.width if isinstance(self.width, list) else [self.width]
 
@@ -334,7 +336,7 @@ class MultiGaussianActivation(Activation):
         scales = self.scale or [1.0] * nr_gaussians
         backsweep_period = float(self.backsweep) if self.backsweep is not None else 0
 
-        parameters: list[GaussianActivationParameters] = [
+        return [
             GaussianActivationParameters(
                 float(center),
                 float(width),
@@ -344,12 +346,26 @@ class MultiGaussianActivation(Activation):
             for center, width, scale in zip(centers, widths, scales, strict=False)
         ]
 
-        if global_axis is None or not self.is_index_dependent():
-            return parameters
+    def _apply_index_dependence(  # noqa: C901, PLR0912
+        self, flat: list[GaussianActivationParameters], global_axis: ArrayLike | None
+    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
+        if global_axis is None:
+            return flat
+        index_dependent = self._has_non_skew_terms()
+        if type(self).is_index_dependent is not MultiGaussianActivation.is_index_dependent:
+            if not self.is_index_dependent():
+                return flat
+            # Grouped models previously used the flat activation to decide whether to
+            # expand before convolution. Flat subclasses keep their own decision.
+            if not isinstance(self, MultiMultiGaussianActivation):
+                index_dependent = True
+        skewed_parameters = None
+        if not index_dependent:
+            skewed_parameters = self._skewed_gaussian_parameters()
+            if skewed_parameters is None:
+                return flat
 
-        global_parameters: list[list[GaussianActivationParameters]] = [
-            [replace(p) for p in parameters] for _ in global_axis
-        ]
+        global_parameters = [[replace(p) for p in flat] for _ in global_axis]
 
         if self.shift is not None:
             if global_axis.size != len(self.shift):
@@ -374,13 +390,13 @@ class MultiGaussianActivation(Activation):
                         reciproke_global_axis=self._uses_wavenumber,
                     )
 
-        if (
-            width_spline is not None
-            or self.width_dispersion_coefficients
-            or self._skewed_gaussian_parameters() is not None
-        ):
+        if index_dependent:
+            skewed_parameters = self._skewed_gaussian_parameters()
+        if width_spline is not None or skewed_parameters is not None:
             for ps, index in zip(global_parameters, global_axis, strict=True):
-                width_correction = self._width_dispersion(float(index), width_spline)
+                width_correction = self._width_dispersion(
+                    float(index), width_spline, skewed_parameters
+                )
                 for p in ps:
                     p.width += width_correction
 
@@ -472,45 +488,6 @@ class MultiMultiGaussianActivation(MultiGaussianActivation):
                 p.scale *= factor
         return flat
 
-    @overload
-    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
-    @overload
-    def parameters(
-        self, global_axis: ArrayLike
-    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
-
-    def parameters(
-        self, global_axis: ArrayLike | None = None
-    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
-        parameters = self._flatten_parameters()
-        if global_axis is None or not self.is_index_dependent():
-            return parameters
-        # Resolve grouped components to the existing flat implementation for
-        # shifts, polynomial dispersion, splines, and skewed-Gaussian terms.
-        flat_model = MultiGaussianActivation(
-            type="multi-gaussian",
-            compartments=self.compartments,
-            center=[p.center for p in parameters],
-            width=[p.width for p in parameters],
-            scale=[p.scale for p in parameters],
-            shift=self.shift,
-            normalize=False,
-            backsweep=self.backsweep,
-            dispersion_center=self.dispersion_center,
-            center_dispersion_coefficients=self.center_dispersion_coefficients,
-            width_dispersion_coefficients=self.width_dispersion_coefficients,
-            reciproke_global_axis=self.reciproke_global_axis,
-            model_dispersion_with_wavenumber=self.model_dispersion_with_wavenumber,
-            width_dispersion_spline_knots=self.width_dispersion_spline_knots,
-            width_dispersion_spline_knots_in_wavelength=self.width_dispersion_spline_knots_in_wavelength,
-            width_dispersion_spline_values=self.width_dispersion_spline_values,
-            width_dispersion_skewed_gaussian_amplitude=self.width_dispersion_skewed_gaussian_amplitude,
-            width_dispersion_skewed_gaussian_location=self.width_dispersion_skewed_gaussian_location,
-            width_dispersion_skewed_gaussian_width=self.width_dispersion_skewed_gaussian_width,
-            width_dispersion_skewed_gaussian_skewness=self.width_dispersion_skewed_gaussian_skewness,
-        )
-        return flat_model.parameters(global_axis)
-
 
 class ConvMultiMultiGaussianActivation(MultiMultiGaussianActivation):
     """Grouped Gaussian activation with per-global-index broadening."""
@@ -521,21 +498,13 @@ class ConvMultiMultiGaussianActivation(MultiMultiGaussianActivation):
     def is_index_dependent(self) -> bool:
         return True
 
-    @overload
-    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
-    @overload
-    def parameters(
-        self, global_axis: ArrayLike
-    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
-
-    def parameters(
-        self, global_axis: ArrayLike | None = None
+    def _apply_index_dependence(
+        self, flat: list[GaussianActivationParameters], global_axis: ArrayLike | None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
         if global_axis is None:
-            return self._flatten_parameters()
-        parameters = super().parameters(global_axis)
+            return flat
+        parameters = super()._apply_index_dependence(flat, global_axis)
         if parameters and not isinstance(parameters[0], list):
-            flat = cast("list[GaussianActivationParameters]", parameters)
             grouped = [[replace(parameter) for parameter in flat] for _ in global_axis]
         else:
             grouped = cast("list[list[GaussianActivationParameters]]", parameters)
@@ -557,17 +526,10 @@ class NormConvMultiMultiGaussianActivation(ConvMultiMultiGaussianActivation):
 
     type: Literal["norm-conv-multi-multi-gaussian"]  # type:ignore[assignment]
 
-    @overload
-    def parameters(self, global_axis: None = None) -> list[GaussianActivationParameters]: ...
-    @overload
-    def parameters(
-        self, global_axis: ArrayLike
-    ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]: ...
-
-    def parameters(
-        self, global_axis: ArrayLike | None = None
+    def _apply_index_dependence(
+        self, flat: list[GaussianActivationParameters], global_axis: ArrayLike | None
     ) -> list[GaussianActivationParameters] | list[list[GaussianActivationParameters]]:
-        result = super().parameters(global_axis)
+        result = super()._apply_index_dependence(flat, global_axis)
         if global_axis is None or not self.normalize_area or not self.normalize:
             return result
         for parameters in cast("list[list[GaussianActivationParameters]]", result):

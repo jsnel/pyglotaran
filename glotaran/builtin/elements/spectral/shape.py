@@ -7,33 +7,9 @@ from typing import cast
 
 import numpy as np
 
+from glotaran.builtin.gaussian import calculate_skewed_gaussian_component
 from glotaran.model.item import ParameterType
 from glotaran.model.item import TypedItem
-
-
-def _calculate_skewed_gaussian_component(
-    axis: np.ndarray,
-    amplitude: ParameterType | None,
-    location: ParameterType,
-    width: ParameterType,
-    skewness: ParameterType,
-) -> np.ndarray:
-    if np.allclose(skewness, 0):
-        component = np.exp(
-            -np.log(2) * np.square(2 * (axis - location) / width)  # type:ignore[operator]
-        )
-    else:
-        log_args = np.asarray(
-            1 + 2 * skewness * (axis - location) / width  # type:ignore[operator]
-        )
-        component = np.zeros(log_args.shape)
-        valid_arg_mask = log_args > 0
-        component[valid_arg_mask] = np.exp(
-            -np.log(2) * np.square(np.log(log_args[valid_arg_mask]) / skewness)
-        )
-    if amplitude is not None:
-        component *= amplitude
-    return component
 
 
 class SpectralShape(TypedItem):
@@ -151,7 +127,7 @@ class SpectralShapeSkewedGaussian(SpectralShapeGaussian):
         np.ndarray
             An array representing a skewed Gaussian shape.
         """
-        return _calculate_skewed_gaussian_component(
+        return calculate_skewed_gaussian_component(
             axis, self.amplitude, self.location, self.width, self.skewness
         )
 
@@ -200,7 +176,7 @@ class SpectralShapeSkewedGaussianSum(SpectralShape):
         relative_amplitudes = [None, *amplitudes[1:]] if self.amplitude else amplitudes
         component_sum = sum(
             (
-                _calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
+                calculate_skewed_gaussian_component(axis, amplitude, location, width, skewness)
                 for amplitude, location, width, skewness in zip(
                     relative_amplitudes, self.location, self.width, self.skewness, strict=True
                 )
