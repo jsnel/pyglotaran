@@ -15,6 +15,7 @@ pass it through ``evaluate_at`` instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import nextafter
 from typing import TYPE_CHECKING
 from warnings import warn
 
@@ -172,17 +173,22 @@ def _calculate_sensitivity(
             msg = f"Free parameter '{label}' is not present in the parameter set."
             raise ValueError(msg) from error
         base_value = float(optimization_values[value_index])
-        step = _finite_difference_step(
+        target = _finite_difference_target(
             base_value,
             float(lower_bounds[value_index]),
             float(upper_bounds[value_index]),
             settings.relative_step,
         )
-        if step == 0:
+        if target is None:
+            warn(
+                f"No representable finite-difference step for '{label}'. Skipping sensitivity.",
+                stacklevel=2,
+            )
             continue
+        displacement = target - base_value
         candidate = parameters.copy()
         candidate_values = optimization_values.copy()
-        candidate_values[value_index] += step
+        candidate_values[value_index] = target
         candidate.set_from_label_and_value_arrays(labels, candidate_values)
 
         if evaluate_at is None:
@@ -191,33 +197,35 @@ def _calculate_sensitivity(
             perturbed_results = evaluate_at(candidate)
         perturbed_clps = _get_clps(perturbed_results)
         perturbed_vector, _ = _flatten_clps(perturbed_clps, expected_slices=expected_slices)
-        sensitivity[:, parameter_index] = (perturbed_vector - base_vector) / step
+        sensitivity[:, parameter_index] = (perturbed_vector - base_vector) / displacement
     return sensitivity
 
 
-def _finite_difference_step(  # noqa: PLR0911
+def _finite_difference_target(
     value: float,
     lower_bound: float,
     upper_bound: float,
     relative_step: float,
-) -> float:
-    """Select a transformed-coordinate step that stays within finite bounds."""
+) -> float | None:
+    """Select a distinct, finite point in optimizer coordinates."""
     nominal = relative_step * max(1.0, abs(value))
-    upper_distance = upper_bound - value
-    lower_distance = value - lower_bound
-    if np.isfinite(upper_distance) and upper_distance < nominal:
-        if not np.isfinite(lower_distance):
-            return -nominal
-        if lower_distance > 0:
-            return -min(nominal, lower_distance / 2)
-        return min(nominal, upper_distance / 2) if upper_distance > 0 else 0.0
-    if np.isfinite(lower_distance) and lower_distance < nominal:
-        if not np.isfinite(upper_distance):
-            return nominal
-        if lower_distance > 0:
-            return -min(nominal, lower_distance / 2)
-        return min(nominal, upper_distance / 2) if upper_distance > 0 else 0.0
-    return nominal
+    room_up, room_down = upper_bound - value, value - lower_bound
+    # Preserve forward differences when both directions have room. Near a bound,
+    # try the side with more room first.
+    bounds = (upper_bound, lower_bound)
+    if room_up < nominal and room_down > room_up:
+        bounds = (lower_bound, upper_bound)
+    for bound in bounds:
+        room = abs(bound - value)
+        if room == 0:
+            continue
+        step = nominal if room >= nominal else room / 2
+        target = value + (step if bound > value else -step)
+        if target == value or not np.isfinite(target) or not lower_bound <= target <= upper_bound:
+            target = nextafter(value, bound)
+        if target != value and np.isfinite(target) and lower_bound <= target <= upper_bound:
+            return target
+    return None
 
 
 def _evaluate_with_restoration(

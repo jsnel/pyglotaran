@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import nextafter
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from glotaran.model.data_model import DataModel
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.optimization.clp_standard_error import ClpStandardErrorSettings
 from glotaran.optimization.clp_standard_error import _evaluate_with_restoration
+from glotaran.optimization.clp_standard_error import _finite_difference_target
 from glotaran.optimization.clp_standard_error import calculate_clp_standard_error
 from glotaran.optimization.objective import FitDecomposition
 from glotaran.optimization.optimization import Optimization
@@ -59,6 +61,57 @@ def test_clp_standard_error_propagates_covariance_without_mutating_parameters() 
     np.testing.assert_allclose(result["dataset"].data, [[4.0]], rtol=1e-5)
     assert result["dataset"].attrs["method"] == "linear_plus_nonlinear_propagation"
     assert parameters.get("fit.p.1").value == 1.0
+
+
+@pytest.mark.parametrize(
+    ("value", "lower", "upper", "expected"),
+    [
+        (5e-8, 0, 1e-7, 7.5e-8),
+        (1e-8, 0, 10, 1.01e-6),
+        (1.0, 1.0, nextafter(1.0, 2.0), nextafter(1.0, 2.0)),
+        (1.0, 1.0, 1.0, None),
+        (1.0, -np.inf, np.inf, 1.000001),
+        (8.0, 0, 10, 8.000008),
+        (10.0, 0, 10, 9.99999),
+    ],
+)
+def test_finite_difference_target(
+    value: float, lower: float, upper: float, expected: float | None
+) -> None:
+    target = _finite_difference_target(value, lower, upper, 1e-6)
+    if expected is None:
+        assert target is None
+    else:
+        assert lower <= target <= upper
+        assert target != value
+        assert target == pytest.approx(expected, abs=1e-15)
+
+
+@pytest.mark.parametrize("room", [False, True])
+def test_clp_standard_error_uses_representable_displacement(room: bool) -> None:
+    maximum = nextafter(1.0, 2.0) if room else 1.0
+    parameters = Parameters.from_dict({"fit": {"p": [1.0, {"minimum": 1.0, "maximum": maximum}]}})
+    objective = SimpleNamespace(
+        model=SimpleNamespace(residual_function="variable_projection"),
+        data=SimpleNamespace(),
+    )
+
+    def calculate():
+        return calculate_clp_standard_error(
+            objective,
+            parameters,
+            ["fit.p.1"],
+            np.array([[4.0]]),
+            ClpStandardErrorSettings(),
+            base_results=_result(1.0),
+            evaluate_at=lambda candidate: _result(candidate.get("fit.p.1").value),
+        )
+
+    if room:
+        np.testing.assert_array_equal(calculate()["dataset"].data, [[2.0]])
+    else:
+        with pytest.warns(UserWarning, match="No representable finite-difference step"):
+            np.testing.assert_array_equal(calculate()["dataset"].data, [[0.0]])
 
 
 def test_clp_standard_error_rejects_covariance_shape_mismatch() -> None:
