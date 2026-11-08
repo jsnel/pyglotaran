@@ -74,14 +74,9 @@ class FullDataset:
     matrix: np.ndarray
 
 
-def _normalized_matrix(data: OptimizationData, *, global_matrix: bool) -> OptimizationMatrix:
-    """Build a result matrix with native or explicitly normalized scales."""
-    return OptimizationMatrix.from_data(data, apply_weight=False, global_matrix=global_matrix)
-
-
 def _prepare_dataset(data: OptimizationData, relations: list[ClpRelation]) -> FullDataset:
-    local = _normalized_matrix(data, global_matrix=False)
-    global_matrix = _normalized_matrix(data, global_matrix=True)
+    local = OptimizationMatrix.from_data(data, apply_weight=False)
+    global_matrix = OptimizationMatrix.from_data(data, apply_weight=False, global_matrix=True)
     if global_matrix.is_index_dependent:
         msg = "Index dependent global matrices are not supported"
         raise ValueError(msg)
