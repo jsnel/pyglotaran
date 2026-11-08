@@ -137,7 +137,7 @@ class Optimization:
         from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
         from glotaran.optimization.ctilde import CtildeObjective  # noqa: PLC0415
 
-        if compute_clp_standard_error and any(
+        if self.settings.compute_clp_standard_error and any(
             isinstance(element, CtildeElement)
             for experiment in models
             for dataset in experiment.datasets.values()
@@ -158,11 +158,6 @@ class Optimization:
         self._tee = TeeContext()
         self._verbose = verbose
         self._raise = raise_exception
-
-        self._compute_clp_standard_error = compute_clp_standard_error
-        self._clp_standard_error_settings = ClpStandardErrorSettings(
-            relative_step=clp_standard_error_finite_difference_relative_step
-        )
 
         self.cost_history: list[float] = []
         """Cost of every function evaluation in call order, including Jacobian evaluations."""
@@ -329,7 +324,7 @@ class Optimization:
         optimization_info: OptimizationInfo,
     ) -> None:
         """Calculate and attach CLP uncertainty after a successful fit."""
-        if not self._compute_clp_standard_error:
+        if not self.settings.compute_clp_standard_error:
             return
         if (
             optimization_info.covariance_matrix is None
@@ -342,6 +337,9 @@ class Optimization:
         # residual variance exactly once.
         covariance = (
             optimization_info.root_mean_square_error**2 * optimization_info.covariance_matrix
+        )
+        settings = ClpStandardErrorSettings(
+            relative_step=self.settings.clp_standard_error_finite_difference_relative_step
         )
         for raw_objective, objective_result in zip(self._objectives, results, strict=True):
             # Ctilde objectives are rejected when CLP uncertainty is requested.
@@ -357,14 +355,14 @@ class Optimization:
                 parameters=self._parameters,
                 free_parameter_labels=self._free_parameter_labels,
                 covariance_matrix=covariance,
-                settings=self._clp_standard_error_settings,
+                settings=settings,
                 base_results=objective_result.optimization_results,
                 evaluate_at=evaluate_at,
             )
             if standard_errors:
                 optimization_info.clp_standard_error_method = "linear_plus_nonlinear_propagation"
                 optimization_info.clp_standard_error_finite_difference_relative_step = (
-                    self._clp_standard_error_settings.relative_step
+                    settings.relative_step
                 )
             for label, error in standard_errors.items():
                 result = objective_result.optimization_results[label]

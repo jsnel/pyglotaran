@@ -53,3 +53,14 @@ def test_invalid_fit_x_scale(
 ):
     with pytest.raises(ValueError, match=match):
         fit_with_options(x_scale=scale)
+
+
+@pytest.mark.parametrize("step", [0.0, float("nan"), float("inf")])
+def test_invalid_fit_clp_standard_error_step(fit_with_options: Callable[..., None], step: float):
+    with pytest.raises(ValueError, match="must be finite and positive"):
+        fit_with_options(clp_standard_error_finite_difference_relative_step=step)
+
+
+def test_invalid_fit_clp_standard_error_switch(fit_with_options: Callable[..., None]):
+    with pytest.raises(ValueError, match="compute_clp_standard_error"):
+        fit_with_options(compute_clp_standard_error="invalid")

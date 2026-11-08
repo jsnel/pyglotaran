@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Literal
 
-import numpy as np
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
@@ -33,7 +32,11 @@ if TYPE_CHECKING:
     from glotaran.typing.types import DatasetMappable
 
 
-FIT_OPTION_NAMES = ("x_scale",)
+FIT_OPTION_NAMES = (
+    "x_scale",
+    "compute_clp_standard_error",
+    "clp_standard_error_finite_difference_relative_step",
+)
 
 
 class Scheme(BaseModel):
@@ -61,10 +64,7 @@ class Scheme(BaseModel):
     @field_validator("clp_standard_error_finite_difference_relative_step")
     @classmethod
     def validate_clp_standard_error_step(cls, value: float) -> float:
-        if not np.isfinite(value) or value <= 0:
-            msg = "clp_standard_error_finite_difference_relative_step must be finite and positive."
-            raise ValueError(msg)
-        return value
+        return OptimizerSettings.validate_clp_standard_error_step(value)
 
     source_path: Path | None = Field(
         default=None,
@@ -196,18 +196,6 @@ class Scheme(BaseModel):
         # value in optimizer settings so records and exports replay overrides.
         add_svd = optimization_kwargs.get("add_svd")
         optimization_kwargs["add_svd"] = scheme.add_svd if add_svd is None else add_svd
-        # Project.optimize enters here directly too. Resolve None as the scheme
-        # default and persist explicit per-fit overrides in optimizer settings.
-        clp_enabled = optimization_kwargs.get("compute_clp_standard_error")
-        optimization_kwargs["compute_clp_standard_error"] = (
-            scheme.compute_clp_standard_error if clp_enabled is None else clp_enabled
-        )
-        step = optimization_kwargs.get("clp_standard_error_finite_difference_relative_step")
-        optimization_kwargs["clp_standard_error_finite_difference_relative_step"] = (
-            scheme.clp_standard_error_finite_difference_relative_step
-            if step is None
-            else self.validate_clp_standard_error_step(step)
-        )
         optimization = Optimization(
             models=list(scheme.experiments.values()),
             parameters=parameters,

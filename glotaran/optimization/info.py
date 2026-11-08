@@ -69,6 +69,14 @@ class OptimizerSettings(BaseModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("clp_standard_error_finite_difference_relative_step")
+    @classmethod
+    def validate_clp_standard_error_step(cls, value: float) -> float:
+        if not np.isfinite(value) or value <= 0:
+            msg = "clp_standard_error_finite_difference_relative_step must be finite and positive."
+            raise ValueError(msg)
+        return value
+
 
 class OptimizationInfo(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
