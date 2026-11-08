@@ -83,9 +83,6 @@ class Optimization:
             "Levenberg-Marquardt",
         ] = "TrustRegionReflection",
     ) -> None:
-        if not isinstance(add_svd, bool):
-            msg = "add_svd must be a boolean."
-            raise TypeError(msg)
         label_counts = Counter(label for experiment in models for label in experiment.datasets)
         if repeated := [label for label, count in label_counts.items() if count > 1]:
             msg = (
@@ -146,7 +143,7 @@ class Optimization:
             msg = "CLP standard errors for Ctilde objectives are not supported."
             raise ValueError(msg)
         self._objectives = [
-            CtildeObjective(experiment, add_svd=add_svd)
+            CtildeObjective(experiment, add_svd=self.settings.add_svd)
             if any(
                 isinstance(element, CtildeElement)
                 for dataset in experiment.datasets.values()

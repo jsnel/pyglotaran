@@ -86,6 +86,12 @@ def test_parameter_scaling_optimizes(scale: float | str | list | dict):
     assert parameters.get("source").value == pytest.approx(4.0)
 
 
+@pytest.mark.parametrize("invalid", ["false", 0])
+def test_direct_add_svd_requires_boolean(invalid: str | int):
+    with pytest.raises(TypeError, match="add_svd must be a boolean"):
+        make_optimization(add_svd=invalid)
+
+
 @pytest.mark.parametrize("scale", [0, -1, float("nan"), "invalid", [1, 0]])
 def test_invalid_scheme_scaling_is_rejected(scale: float | str | list):
     with pytest.raises(ValueError):

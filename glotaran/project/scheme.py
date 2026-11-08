@@ -36,6 +36,7 @@ FIT_OPTION_NAMES = (
     "x_scale",
     "compute_clp_standard_error",
     "clp_standard_error_finite_difference_relative_step",
+    "add_svd",
 )
 
 
@@ -192,10 +193,6 @@ class Scheme(BaseModel):
             if optimization_kwargs.get(name) is None:
                 optimization_kwargs[name] = getattr(scheme, name)
         optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
-        # Project.optimize also enters through this path. Persist the effective
-        # value in optimizer settings so records and exports replay overrides.
-        add_svd = optimization_kwargs.get("add_svd")
-        optimization_kwargs["add_svd"] = scheme.add_svd if add_svd is None else add_svd
         optimization = Optimization(
             models=list(scheme.experiments.values()),
             parameters=parameters,

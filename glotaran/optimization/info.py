@@ -77,6 +77,14 @@ class OptimizerSettings(BaseModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("add_svd", mode="before")
+    @classmethod
+    def validate_add_svd(cls, value: object) -> bool:
+        if not isinstance(value, bool):
+            msg = "add_svd must be a boolean."
+            raise TypeError(msg)
+        return value
+
 
 class OptimizationInfo(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
