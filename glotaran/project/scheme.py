@@ -17,6 +17,7 @@ from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
 from glotaran.model.parameter_penalties import EqualParameterPenalty  # noqa: TC001
 from glotaran.optimization import Optimization
+from glotaran.optimization.info import OptimizerSettings
 from glotaran.optimization.info import calculate_parameter_errors
 from glotaran.project.library import ModelLibrary
 from glotaran.utils.io import load_datasets
@@ -30,6 +31,9 @@ if TYPE_CHECKING:
     from glotaran.parameter import Parameters
     from glotaran.project.result import Result
     from glotaran.typing.types import DatasetMappable
+
+
+FIT_OPTION_NAMES = ("x_scale",)
 
 
 class Scheme(BaseModel):
@@ -52,16 +56,7 @@ class Scheme(BaseModel):
         cls,
         value: float | Literal["jac"] | list[float] | dict[str, float],
     ) -> float | Literal["jac"] | list[float] | dict[str, float]:
-        if isinstance(value, str):
-            if value == "jac":
-                return value
-            msg = "x_scale must be 'jac' or contain finite positive values."
-            raise ValueError(msg)
-        values = list(value.values()) if isinstance(value, dict) else value
-        if np.any(~np.isfinite(values)) or np.any(np.asarray(values) <= 0):
-            msg = "x_scale must contain finite positive values."
-            raise ValueError(msg)
-        return value
+        return OptimizerSettings.validate_x_scale(value)
 
     @field_validator("clp_standard_error_finite_difference_relative_step")
     @classmethod
@@ -192,12 +187,10 @@ class Scheme(BaseModel):
         scheme._load_data(  # noqa: SLF001
             {label: data.copy(deep=True) for label, data in load_datasets(datasets).items()}
         )
-        # Project.optimize enters here directly, so defaults must be applied in
-        # the common path rather than only in Scheme.optimize.
-        x_scale = optimization_kwargs.get("x_scale")
-        optimization_kwargs["x_scale"] = (
-            scheme.x_scale if x_scale is None else self.validate_x_scale(x_scale)
-        )
+        # Scheme and Project share this path. None defers to the scheme value.
+        for name in FIT_OPTION_NAMES:
+            if optimization_kwargs.get(name) is None:
+                optimization_kwargs[name] = getattr(scheme, name)
         optimization_kwargs["parameter_penalties"] = scheme.parameter_penalties
         # Project.optimize also enters through this path. Persist the effective
         # value in optimizer settings so records and exports replay overrides.

@@ -52,6 +52,23 @@ class OptimizerSettings(BaseModel):
     compute_clp_standard_error: bool = False
     clp_standard_error_finite_difference_relative_step: float = 1e-6
 
+    @field_validator("x_scale")
+    @classmethod
+    def validate_x_scale(
+        cls,
+        value: float | Literal["jac"] | list[float] | dict[str, float],
+    ) -> float | Literal["jac"] | list[float] | dict[str, float]:
+        if isinstance(value, str):
+            if value == "jac":
+                return value
+            msg = "x_scale must be 'jac' or contain finite positive values."
+            raise ValueError(msg)
+        values = list(value.values()) if isinstance(value, dict) else value
+        if np.any(~np.isfinite(values)) or np.any(np.asarray(values) <= 0):
+            msg = "x_scale must contain finite positive values."
+            raise ValueError(msg)
+        return value
+
 
 class OptimizationInfo(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")

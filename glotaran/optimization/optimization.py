@@ -114,6 +114,26 @@ class Optimization:
         issues = [issue for experiment in models for issue in experiment.get_issues(parameters)]
         if len(issues) > 0:
             raise GlotaranModelIssues(issues)
+        if optimization_method not in SUPPORTED_OPTIMIZATION_METHODS:
+            raise UnsupportedMethodError(optimization_method)
+        self.settings = OptimizerSettings(
+            optimization_method=optimization_method,
+            ftol=ftol,
+            gtol=gtol,
+            xtol=xtol,
+            maximum_number_function_evaluations=maximum_number_function_evaluations,
+            x_scale=x_scale,
+            add_svd=add_svd,
+            compute_clp_standard_error=compute_clp_standard_error,
+            clp_standard_error_finite_difference_relative_step=(
+                clp_standard_error_finite_difference_relative_step
+            ),
+        )
+        self._free_parameter_labels, _, _, _ = self._parameters.get_label_value_and_bounds_arrays(
+            exclude_non_vary=True
+        )
+        self._validate_x_scale_size()
+
         from glotaran.builtin.elements.ctilde import CtildeElement  # noqa: PLC0415
         from glotaran.optimization.ctilde import CtildeObjective  # noqa: PLC0415
 
@@ -143,21 +163,6 @@ class Optimization:
         self._clp_standard_error_settings = ClpStandardErrorSettings(
             relative_step=clp_standard_error_finite_difference_relative_step
         )
-        if optimization_method not in SUPPORTED_OPTIMIZATION_METHODS:
-            raise UnsupportedMethodError(optimization_method)
-        self.settings = OptimizerSettings(
-            optimization_method=optimization_method,
-            ftol=ftol,
-            gtol=gtol,
-            xtol=xtol,
-            maximum_number_function_evaluations=maximum_number_function_evaluations,
-            x_scale=x_scale,
-            add_svd=add_svd,
-            compute_clp_standard_error=compute_clp_standard_error,
-            clp_standard_error_finite_difference_relative_step=(
-                clp_standard_error_finite_difference_relative_step
-            ),
-        )
 
         self.cost_history: list[float] = []
         """Cost of every function evaluation in call order, including Jacobian evaluations."""
@@ -167,9 +172,15 @@ class Optimization:
         """SciPy's success flag: whether the optimizer met its tolerances."""
         self.parameter_history = ParameterHistory()
         self.parameter_history.append(self._parameters)
-        self._free_parameter_labels, _, _, _ = self._parameters.get_label_value_and_bounds_arrays(
-            exclude_non_vary=True
-        )
+
+    def _validate_x_scale_size(self) -> None:
+        x_scale = self.settings.x_scale
+        if isinstance(x_scale, dict) and set(x_scale) != set(self._free_parameter_labels):
+            msg = "x_scale mapping must name every free parameter exactly once."
+            raise ValueError(msg)
+        if isinstance(x_scale, list) and len(x_scale) != len(self._free_parameter_labels):
+            msg = "x_scale list must match the free parameter count."
+            raise ValueError(msg)
 
     @property
     def parameters(self) -> Parameters:
@@ -222,13 +233,7 @@ class Optimization:
         ) = self._parameters.get_label_value_and_bounds_arrays(exclude_non_vary=True)
         x_scale = self.settings.x_scale
         if isinstance(x_scale, dict):
-            if set(x_scale) != set(self._free_parameter_labels):
-                msg = "x_scale mapping must name every free parameter exactly once."
-                raise ValueError(msg)
             x_scale = [x_scale[label] for label in self._free_parameter_labels]
-        if isinstance(x_scale, list) and len(x_scale) != len(self._free_parameter_labels):
-            msg = "x_scale list must match the free parameter count."
-            raise ValueError(msg)
         ls_result = None
         termination_reason = ""
         no_free_parameters = initial_parameter.size == 0
