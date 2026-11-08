@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from glotaran.model.data_model import DataModel
+from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
+from glotaran.parameter import Parameters
+from glotaran.project.library import ModelLibrary
 from tests.model.test_data_model import MockDataModel
 from tests.model.test_data_model import MockElementWithDataModel
 from tests.model.test_data_model import MockElementWithItem
@@ -55,3 +60,31 @@ def test_experiment_model_from_dict():
 
     d3 = experiment_model.datasets["d3"]
     assert isinstance(d3, MockDataModel)
+
+
+@pytest.mark.parametrize("dataset_scales", [[2.0], []])
+def test_resolve_rejects_duplicate_scale_list_declarations(dataset_scales: list[float]):
+    experiment = ExperimentModel(
+        datasets={"sample": DataModel(elements=[], scale_list=dataset_scales)},
+        scale_list={"sample": [2.0]},
+    )
+    library = ModelLibrary(root={})
+    parameters = Parameters.empty()
+
+    with pytest.raises(GlotaranUserError, match=r"Dataset 'sample'.*scale_list.*both"):
+        experiment.resolve(library, parameters, initial=parameters)
+
+
+def test_resolve_keeps_experiment_scale_list_only_in_resolved_dataset():
+    experiment = ExperimentModel(
+        datasets={"sample": DataModel(elements=[])}, scale_list={"sample": [2.0]}
+    )
+    library = ModelLibrary(root={})
+    parameters = Parameters.empty()
+
+    resolved = experiment.resolve(library, parameters, initial=parameters)
+    resolved_again = resolved.resolve(library, parameters, initial=parameters)
+
+    assert resolved_again.datasets["sample"].scale_list == [2.0]
+    assert experiment.datasets["sample"].scale_list is None
+    assert experiment.scale_list == {"sample": [2.0]}

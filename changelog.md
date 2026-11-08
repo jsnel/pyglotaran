@@ -7,6 +7,9 @@
 ### 💥 BREAKING CHANGE
 
 - 🐍⬆️ Update minimum python version to 3.13 (#1621)
+- Experiment `scale` now applies to single-dataset fits, including full models.
+- A dataset's `scale_list` must be declared at either the dataset or experiment level.
+  Declaring it at both levels now raises an error.
 
 
 ### ✨ Features
@@ -21,10 +24,7 @@
   embedded calibration tables, ROI cropping and wavelength reversal).
 - Export optimized parameter tables with derived T-values; reject duplicate
   parameter labels, warn about unknown table columns, and report initial bounds.
-- See [the migration guide](devdocs/scale-list-port/USAGE.md) and the
-  [revision contract](devdocs/scale-list-port/PLAN.md). New fitting modes are opt-in;
-  positional scale/IRF lists follow global-coordinate order and need a pinned
-  scale or linked reference when their amplitudes are otherwise non-identifiable.
+- The Usage documentation maps the v0.7 `scale_list` settings to native v0.8 models.
 
 - ✨ Add a native v0.8 PFID element for perturbed free-induction-decay fitting (#1510)
 - ✨ Add an opt-in project (`Project.start`) that records every fit run through
@@ -33,16 +33,6 @@
 - ✨ Store the optimizer settings on `Result.optimizer_settings` and in `result.yml`
 - ✨ Collect the cost of every function evaluation and, with `verbose=True`, the parameter
   values in the parameter history
-
-### scale_list correctness improvements
-
-- Restore the optimizer's returned parameter vector before assembling final results.
-- Round-trip YAML lists of mappings with valid sequence indentation.
-- Keep spline knot coordinates numeric, consume per-index IRF normalization in
-  kinetic matrices, and report the normalized concentrations used for fitting.
-- CLP uncertainty restores fitted state on errors and differentiates in optimizer
-  coordinates, including log-transformed non-negative parameters.
-
 
 ### 👌 Minor Improvements:
 
@@ -56,6 +46,11 @@
 
 ### 🩹 Bug fixes
 
+- Restore scale-sum normalization for grouped Gaussian activations with `normalize: true`
+  and `normalize_area: false`.
+- Use finite-difference steps within the bounds and divide by their actual displacement
+  when estimating CLP standard errors. The calculation uses optimizer coordinates and
+  restores the fitted values if evaluation fails.
 - 🩹 Save NumPy scalar coordinates as valid numbers in explicit ASCII files (#1591)
 - 🩹 Preserve CLP label ordering when combining element matrices with mixed dimensionality
   (#1512)

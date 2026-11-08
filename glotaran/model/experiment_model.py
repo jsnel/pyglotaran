@@ -17,6 +17,7 @@ from glotaran.model.clp_relation import ClpRelation  # noqa: TC001
 from glotaran.model.data_model import DataModel
 from glotaran.model.data_model import is_data_model_global
 from glotaran.model.data_model import resolve_data_model
+from glotaran.model.errors import GlotaranUserError
 from glotaran.model.errors import ItemIssue
 from glotaran.model.item import ParameterType
 from glotaran.model.item import get_item_issues
@@ -49,8 +50,8 @@ class ExperimentModel(BaseModel):
     scale_list: dict[str, list[ParameterType]] = Field(
         default_factory=dict,
         description=(
-            "Optional per-global-index scale parameters by dataset. These are copied to the "
-            "corresponding dataset model during resolution."
+            "Optional per-global-index scales by dataset. Specify each list here or on "
+            "its dataset model."
         ),
     )
 
@@ -86,6 +87,14 @@ class ExperimentModel(BaseModel):
         parameters: Parameters,
         initial: Parameters | None = None,
     ) -> ExperimentModel:
+        for label, dataset in self.datasets.items():
+            if label in self.scale_list and dataset.scale_list is not None:
+                msg = (
+                    f"Dataset '{label}' declares scale_list on both the experiment and dataset. "
+                    "Declare it in one place."
+                )
+                raise GlotaranUserError(msg)
+
         result = self.model_copy()
         result.datasets = {
             label: resolve_data_model(dataset, library, parameters, initial)
@@ -106,12 +115,11 @@ class ExperimentModel(BaseModel):
             label: [resolve_parameter(value, parameters, initial) for value in values]
             for label, values in self.scale_list.items()
         }
-        for label, values in result.scale_list.items():
-            if label in result.datasets:
-                # The dataset-local field is the canonical runtime location. Keeping the
-                # experiment-level mapping makes the YAML contract convenient for callers that
-                # already specify scalar dataset scales at this level.
-                result.datasets[label].scale_list = values
+        for label, dataset in result.datasets.items():
+            if label in result.scale_list:
+                # Keep the resolved list in its canonical dataset field so the resolved
+                # model does not itself contain duplicate declarations.
+                dataset.scale_list = result.scale_list.pop(label)
         return result
 
     def get_issues(self, parameters: Parameters) -> list[ItemIssue]:
