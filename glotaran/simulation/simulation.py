@@ -11,6 +11,7 @@ from glotaran.model.data_model import get_data_model_dimension
 from glotaran.model.data_model import is_data_model_single_amplitude
 from glotaran.model.data_model import resolve_data_model
 from glotaran.model.errors import GlotaranUserError
+from glotaran.optimization.data import resolve_scale_list
 from glotaran.optimization.matrix import OptimizationMatrix
 from glotaran.optimization.matrix import compose_full_matrix
 
@@ -21,7 +22,13 @@ if TYPE_CHECKING:
     from glotaran.typing.types import ArrayLike
 
 
-def simulate(  # noqa: C901, PLR0912, PLR0915
+def _check_paired_global_matrix(matrix: OptimizationMatrix) -> None:
+    if matrix.is_index_dependent:
+        msg = "Single-amplitude simulation does not support an index-dependent global matrix."
+        raise GlotaranUserError(msg)
+
+
+def simulate(  # noqa: C901, PLR0912
     model: DataModel,
     library: ModelLibrary,
     parameters: Parameters,
@@ -67,7 +74,8 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
         Raised if dataset model has no global megacomplex and no clp are provided.
     """
     model = resolve_data_model(model, library, parameters)
-    if is_data_model_single_amplitude(model) and not model.global_elements:
+    paired = is_data_model_single_amplitude(model)
+    if paired and not model.global_elements:
         msg = "A single-amplitude simulation requires global elements to be configured."
         raise GlotaranUserError(msg)
     model_dimension = get_data_model_dimension(model)
@@ -83,14 +91,8 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
         global_matrix = OptimizationMatrix.from_data_model(
             model, global_axis, model_axis, None, global_matrix=True
         )
-        if is_data_model_single_amplitude(model):
-            if global_matrix.is_index_dependent:
-                msg = (
-                    "Single-amplitude simulation does not support an index-dependent "
-                    "global matrix."
-                )
-                raise GlotaranUserError(msg)
-            clp = None
+        if paired:
+            _check_paired_global_matrix(global_matrix)
         else:
             clp = xr.DataArray(
                 global_matrix.array,
@@ -105,40 +107,28 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
             (global_dimension, global_axis),
         ],
     )
-    if is_data_model_single_amplitude(model):
+    if paired:
         if global_matrix is None:
             global_matrix = OptimizationMatrix.from_data_model(
                 model, global_axis, model_axis, None, global_matrix=True
             )
         global_matrix = OptimizationMatrix.align_paired_global(model, matrix, global_matrix)
-    if model.scale_list is not None:
-        if len(model.scale_list) != global_axis.size:
-            msg = (
-                f"Dataset scale_list length ({len(model.scale_list)}) does not match the "
-                f"number of global axis points ({global_axis.size})."
-            )
-            raise ValueError(msg)
-        scales = np.asarray(
-            [float(getattr(value, "value", value)) for value in model.scale_list],
-            dtype=float,
-        )
-    else:
+    scales = resolve_scale_list(model.scale_list, global_axis.size)
+    if scales is None:
         scales = np.ones(global_axis.size)
+    if paired and global_axis.size:
+        assert global_matrix is not None
+        if len(global_matrix.clp_axis) != len(matrix.clp_axis):
+            msg = (
+                "A single-amplitude simulation requires the model and global matrices "
+                "to have the same number of components."
+            )
+            raise GlotaranUserError(msg)
+        if clp is not None:
+            _check_paired_global_matrix(global_matrix)
     for i in range(global_axis.size):
-        if is_data_model_single_amplitude(model):
+        if paired:
             assert global_matrix is not None
-            if len(global_matrix.clp_axis) != len(matrix.clp_axis):
-                msg = (
-                    "A single-amplitude simulation requires the model and global matrices "
-                    "to have the same number of components."
-                )
-                raise GlotaranUserError(msg)
-            if global_matrix.is_index_dependent:
-                msg = (
-                    "Single-amplitude simulation does not support an index-dependent "
-                    "global matrix."
-                )
-                raise GlotaranUserError(msg)
             _, pair_matrix = compose_full_matrix(
                 matrix, global_matrix, paired=True, global_index=i
             )

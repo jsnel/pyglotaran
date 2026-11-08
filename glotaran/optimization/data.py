@@ -141,6 +141,19 @@ def prepare_generated_datasets(experiments: Iterable[ExperimentModel]) -> None:
             )
 
 
+def resolve_scale_list(values: list[ParameterType] | None, size: int) -> ArrayLike | None:
+    """Read the current numeric dataset scales in global-coordinate order."""
+    if values is None:
+        return None
+    if len(values) != size:
+        msg = (
+            f"Dataset scale_list length ({len(values)}) does not match the "
+            f"number of global axis points ({size})."
+        )
+        raise ValueError(msg)
+    return np.asarray([float(getattr(value, "value", value)) for value in values], dtype=float)
+
+
 class OptimizationDataProvider:
     @abc.abstractproperty
     def data_slices(self) -> list[ArrayLike]:
@@ -178,7 +191,7 @@ class OptimizationData(OptimizationDataProvider):
         # updates those objects between objective evaluations, so the matrix provider must
         # resolve their current values each time ``scale_list`` is requested.
         self._scale_list = model.scale_list
-        self._resolve_scale_list(self._scale_list)
+        resolve_scale_list(self._scale_list, self._global_axis.size)
 
         self._data: ArrayLike = self.get_from_dataset(data, "data")  # type:ignore[assignment]
         self._flat_data = None
@@ -272,7 +285,7 @@ class OptimizationData(OptimizationDataProvider):
     @property
     def scale_list(self) -> ArrayLike | None:
         """Per-global-index dataset scales, resolved to numeric values."""
-        return self._resolve_scale_list(self._scale_list)
+        return resolve_scale_list(self._scale_list, self._global_axis.size)
 
     @property
     def dataset_scale(self) -> float | None:
@@ -288,17 +301,6 @@ class OptimizationData(OptimizationDataProvider):
     @property
     def flat_weight(self) -> ArrayLike | None:
         return self._flat_weight
-
-    def _resolve_scale_list(self, scale_list: list[Any] | None) -> ArrayLike | None:
-        if scale_list is None:
-            return None
-        if len(scale_list) != self._global_axis.size:
-            msg = (
-                f"Dataset scale_list length ({len(scale_list)}) does not match the number "
-                f"of global axis points ({self._global_axis.size})."
-            )
-            raise ValueError(msg)
-        return np.asarray([float(getattr(value, "value", value)) for value in scale_list])
 
     def get_model_weight(self, model: DataModel) -> ArrayLike | None:
         """Add model weight to data.
