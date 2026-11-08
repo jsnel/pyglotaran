@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -12,6 +12,7 @@ from glotaran.builtin.elements.ctilde import CtildeElement
 from glotaran.builtin.io.yml.utils import load_dict
 from glotaran.builtin.io.yml.utils import write_dict
 from glotaran.io import load_result
+from glotaran.io.interface import SAVING_OPTIONS_MINIMAL
 from glotaran.model.errors import GlotaranModelError
 from glotaran.model.errors import GlotaranUserError
 from glotaran.model.experiment_model import ExperimentModel
@@ -20,10 +21,6 @@ from glotaran.parameter import Parameters
 from glotaran.project import Project
 from glotaran.project.record import read_record_file
 from glotaran.project.scheme import Scheme
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 REFRESID_SVD = {
     "refresid_left_singular_vectors",
@@ -359,6 +356,7 @@ def test_supplied_ctilde_basis_and_weights_are_used_but_values_are_generated():
     objective = optimization._objectives[0]
     residual = objective.calculate()
     auxiliary = objective.get_result().optimization_results["auxiliary"]
+    xr.testing.assert_identical(auxiliary.supplied_input_data, supplied)
     assert auxiliary.input_data.basis.values.tolist() == ["b", "a"]
     assert not np.allclose(auxiliary.input_data, supplied.data)
     assert np.linalg.norm(auxiliary.residuals) > 0
@@ -373,6 +371,40 @@ def test_supplied_ctilde_basis_and_weights_are_used_but_values_are_generated():
         .optimization_results["auxiliary"]
     )
     xr.testing.assert_allclose(auxiliary.input_data.sel(basis=["a", "b"]), natural.input_data)
+
+
+@pytest.mark.parametrize(
+    ("scalar", "scale_list"),
+    [(1.0, None), (2.0, None), (1.0, [3.0, 5.0]), (2.0, [3.0, 5.0])],
+)
+def test_scaled_ctilde_decomposition_reconstructs_fitted_data(
+    scalar: float, scale_list: list[float] | None
+):
+    scheme = supplied_ctilde_scheme()
+    experiment = scheme.experiments["one"]
+    experiment.scale["auxiliary"] = scalar
+    if scale_list is not None:
+        experiment.scale_list["auxiliary"] = scale_list
+    result = scheme.optimize(
+        params(),
+        {"source": input_data(), "auxiliary": supplied_ctilde()},
+        add_svd=False,
+        dry_run=True,
+        verbose=False,
+        raise_exception=True,
+    )
+    auxiliary = result.optimization_results["auxiliary"]
+    decomposition = auxiliary.fit_decomposition
+    assert decomposition is not None
+    assert auxiliary.fitted_data is not None
+    reconstructed = xr.dot(decomposition.matrix, decomposition.clp, dim="amplitude_label")
+    xr.testing.assert_allclose(reconstructed.transpose("time", "basis"), auxiliary.fitted_data)
+    expected = auxiliary.elements["ctilde_model"].Ctilde * scalar
+    if scale_list is not None:
+        expected = expected * xr.DataArray(
+            scale_list, dims=("basis",), coords={"basis": expected.basis}
+        )
+    xr.testing.assert_allclose(decomposition.matrix.rename({"amplitude_label": "basis"}), expected)
 
 
 def test_supplied_ctilde_project_record_and_recompute(tmp_path: Path):
@@ -393,6 +425,77 @@ def test_supplied_ctilde_project_record_and_recompute(tmp_path: Path):
     altered["auxiliary"] = datasets["auxiliary"].assign_coords(basis=["a", "b"])
     with pytest.raises(GlotaranUserError, match="basis coordinate labels changed"):
         project.recompute(result.record, altered)
+    exported = project.export(result, "supplied-ctilde")
+    exported_recomputed = project.recompute(exported, datasets)
+    xr.testing.assert_allclose(
+        exported_recomputed.optimization_results["auxiliary"].fitted_data, expected.fitted_data
+    )
+    with pytest.raises(GlotaranUserError, match="basis coordinate labels changed"):
+        project.recompute(exported, altered)
+    changed_weights = dict(datasets)
+    changed_weights["auxiliary"] = datasets["auxiliary"].copy(deep=True)
+    changed_weights["auxiliary"]["weight"] *= 2
+    with pytest.raises(GlotaranUserError, match="weight"):
+        project.recompute(exported, changed_weights)
+
+    restored = load_result(exported)
+    xr.testing.assert_allclose(
+        restored.optimization_results["auxiliary"].supplied_input_data, datasets["auxiliary"]
+    )
+    assert restored.optimization_results["auxiliary"].input_data_is_generated
+    second_export = project.export(restored, "restored-ctilde")
+    project.recompute(second_export, datasets)
+
+    saved = tmp_path / "saved-result"
+    result.save(saved)
+    loaded = load_result(saved)
+    xr.testing.assert_allclose(
+        loaded.optimization_results["auxiliary"].supplied_input_data, datasets["auxiliary"]
+    )
+    serialized = load_dict(saved / "result.yml", is_file=True)
+    paths = type(result).extract_paths_from_serialization(saved / "result.yml", serialized)
+    supplied_path = saved / "optimization_results" / "auxiliary" / "supplied_input_data.nc"
+    assert supplied_path.resolve() in {Path(path).resolve() for path in paths}
+
+
+def test_filtered_supplied_ctilde_cannot_be_silently_exported(tmp_path: Path):
+    project = Project.start(tmp_path)
+    datasets = {"source": input_data(), "auxiliary": supplied_ctilde()}
+    result = project.optimize(
+        supplied_ctilde_scheme(), params(), datasets, verbose=False, raise_exception=True
+    )
+    original_attrs = {
+        label: dict(optimization_result.input_data.attrs)
+        for label, optimization_result in result.optimization_results.items()
+    }
+    supplied_attrs = dict(result.optimization_results["auxiliary"].supplied_input_data.attrs)
+    minimal_export = project.export(
+        result, "minimal-export", saving_options=SAVING_OPTIONS_MINIMAL
+    )
+    for label, optimization_result in result.optimization_results.items():
+        assert optimization_result.input_data.attrs == original_attrs[label]
+    assert result.optimization_results["auxiliary"].supplied_input_data.attrs == supplied_attrs
+    project.recompute(minimal_export, datasets)
+    minimal = tmp_path / "minimal-result"
+    result.save(minimal, saving_options=SAVING_OPTIONS_MINIMAL)
+    restored = load_result(minimal)
+    auxiliary = restored.optimization_results["auxiliary"]
+    assert auxiliary.input_data_is_generated
+    assert auxiliary.supplied_input_data_was_provided
+    assert auxiliary.supplied_input_data is None
+    with pytest.raises(GlotaranUserError, match=r"supplied input data.*auxiliary"):
+        project.export(restored, "incomplete")
+
+    complete = tmp_path / "complete-result"
+    result.save(complete)
+    complete_result = load_result(complete)
+    export = project.export(complete_result, "complete")
+    project.recompute(export, datasets)
+    changed = dict(datasets)
+    changed["auxiliary"] = datasets["auxiliary"].copy(deep=True)
+    changed["auxiliary"]["weight"] *= 2
+    with pytest.raises(GlotaranUserError, match="weight"):
+        project.recompute(export, changed)
 
 
 @pytest.mark.parametrize("axis", ["time", "basis", "duplicate"])
@@ -519,6 +622,8 @@ def test_project_records_ctilde_svd_override_and_recomputes(
 def test_project_records_and_recomputes_without_generated_input(tmp_path: Path):
     project = Project.start(tmp_path)
     source = input_data()
+    # Metadata alone must not make a supplied input disappear from the export summary.
+    source.attrs["generated_by_model"] = 1
     result = project.optimize(
         make_scheme(), params(), {"source": source}, verbose=False, raise_exception=True
     )
@@ -535,10 +640,16 @@ def test_project_records_and_recomputes_without_generated_input(tmp_path: Path):
             expected.elements["ctilde_model"][name], actual.elements["ctilde_model"][name]
         )
     export = project.export(result, "ctilde")
+    metadata = load_dict(export / "export.yml", is_file=True)
+    assert set(metadata["data"]) == {"source"}
     from_export = project.recompute(export, {"source": source})
     xr.testing.assert_allclose(
         expected.input_data, from_export.optimization_results["auxiliary"].input_data
     )
+    changed_source = source.copy(deep=True)
+    changed_source["data"] *= 2
+    with pytest.raises(GlotaranUserError, match="source: data"):
+        project.recompute(export, {"source": changed_source})
 
 
 def test_spectrally_varying_relations_are_rejected():

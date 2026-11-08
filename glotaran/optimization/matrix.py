@@ -134,10 +134,11 @@ class OptimizationMatrix:
         if normalize and scales is not None:
             # Optimization matrices are built from resolved data models, so
             # element references have already become concrete elements.
-            labels = {cast("Element", element).label for _, element in entries}
-            if set(scales) != labels:
-                msg = "Normalized element scales must name every element exactly once"
-                raise ValueError(msg)
+            if isinstance(scales, dict):
+                labels = {cast("Element", element).label for _, element in entries}
+                if set(scales) != labels:
+                    msg = "Normalized element scales must name every element exactly once"
+                    raise ValueError(msg)
             values = [
                 float(cast("float | str", getattr(scale, "value", scale))) for scale, _ in entries
             ]

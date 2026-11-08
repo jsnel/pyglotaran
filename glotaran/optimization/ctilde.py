@@ -234,6 +234,14 @@ class CtildeObjective:
                 coords={"basis": basis, "amplitude_label": basis.to_numpy()},
             )
             matrix = ctilde.rename({"basis": "amplitude_label"})
+            if data.dataset_scale is not None:
+                matrix = matrix * data.dataset_scale
+            if data.scale_list is not None:
+                matrix = matrix * xr.DataArray(
+                    data.scale_list,
+                    dims=("amplitude_label",),
+                    coords={"amplitude_label": basis.to_numpy()},
+                )
             auxiliary_element = xr.Dataset(
                 {"Ctilde": ctilde, "Etilde": etilde, "refresid": observed["refresid"]}
             )
@@ -246,6 +254,9 @@ class CtildeObjective:
             )
             result.optimization_results[label] = OptimizationResult(
                 input_data=observed["data"],
+                supplied_input_data=self._supplied.get(label),
+                input_data_is_generated=True,
+                supplied_input_data_was_provided=label in self._supplied,
                 residuals=residual_array,
                 elements={element.label: auxiliary_element},
                 fit_decomposition=FitDecomposition(clp=identity, matrix=matrix),

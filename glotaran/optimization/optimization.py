@@ -110,18 +110,6 @@ class Optimization:
             for p in parameter_penalties or []
         ]
         self._parameters.validate_bounds(raise_exception=True)
-        if compute_clp_standard_error:
-            unsupported = [
-                f"experiment[{experiment_index}]"
-                for experiment_index, experiment in enumerate(models)
-                if experiment.residual_function != "variable_projection"
-            ]
-            if unsupported:
-                msg = (
-                    "CLP standard errors require variable_projection residuals; "
-                    f"unsupported experiments: {unsupported}."
-                )
-                raise ValueError(msg)
         self._warned_penalty_fallback = False
         issues = [issue for experiment in models for issue in experiment.get_issues(parameters)]
         if len(issues) > 0:
@@ -344,10 +332,6 @@ class Optimization:
         ):
             return
 
-        optimization_info.clp_standard_error_method = "linear_plus_nonlinear_propagation"
-        optimization_info.clp_standard_error_finite_difference_relative_step = (
-            self._clp_standard_error_settings.relative_step
-        )
         # ``OptimizationInfo.covariance_matrix`` intentionally remains the unscaled
         # pseudo-inverse used for parameter diagnostics.  CLP propagation needs the
         # residual variance exactly once.
@@ -372,6 +356,11 @@ class Optimization:
                 base_results=objective_result.optimization_results,
                 evaluate_at=evaluate_at,
             )
+            if standard_errors:
+                optimization_info.clp_standard_error_method = "linear_plus_nonlinear_propagation"
+                optimization_info.clp_standard_error_finite_difference_relative_step = (
+                    self._clp_standard_error_settings.relative_step
+                )
             for label, error in standard_errors.items():
                 result = objective_result.optimization_results[label]
                 if result.fit_decomposition is None:
