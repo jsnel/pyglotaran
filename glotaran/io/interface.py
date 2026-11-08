@@ -35,6 +35,7 @@ class SavingOptions(TypedDict, total=False):
     data_filter: set[
         Literal[
             "input_data",
+            "supplied_input_data",
             "residuals",
             "fitted_data",
             "elements",
@@ -69,6 +70,7 @@ SAVING_OPTIONS_DEFAULT: SavingOptions = {
 SAVING_OPTIONS_MINIMAL: SavingOptions = SAVING_OPTIONS_DEFAULT | {
     "data_filter": {
         "input_data",
+        "supplied_input_data",
         "residuals",
         "fitted_data",
         "elements",

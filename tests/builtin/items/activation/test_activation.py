@@ -157,6 +157,28 @@ def test_multi_multi_gaussian_activation_group_expansion_and_area_normalization(
     ) == pytest.approx(1000.0)
 
 
+@pytest.mark.parametrize("width", [float("nan"), float("inf")])
+def test_grouped_gaussian_rejects_nonfinite_area(width: float):
+    activation = MultiMultiGaussianActivation(
+        type="multi-multi-gaussian", center=[[0.0]], width=[[width]], compartments={}
+    )
+    with pytest.raises(GlotaranUserError, match="positive finite areas"):
+        activation.parameters()
+
+
+@pytest.mark.parametrize("convwidth", [float("nan"), float("inf")])
+def test_norm_conv_grouped_gaussian_rejects_nonfinite_area(convwidth: float):
+    activation = NormConvMultiMultiGaussianActivation(
+        type="norm-conv-multi-multi-gaussian",
+        center=[[0.0]],
+        width=[[0.1]],
+        convwidth=[convwidth],
+        compartments={},
+    )
+    with pytest.raises(GlotaranUserError, match="positive finite areas"):
+        activation.parameters(np.asarray([500.0]))
+
+
 def test_norm_conv_multi_multi_gaussian_uses_per_index_broadening_and_normalization():
     activation = NormConvMultiMultiGaussianActivation(
         type="norm-conv-multi-multi-gaussian",

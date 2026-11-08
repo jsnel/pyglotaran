@@ -459,7 +459,12 @@ class MultiMultiGaussianActivation(MultiGaussianActivation):
                 )
         if self.normalize_area and self.normalize:
             total_area = float(np.sum([p.scale * abs(p.width) for p in flat]) * np.sqrt(2 * np.pi))
-            if not np.isfinite(self.normarea) or self.normarea <= 0 or total_area <= 0:
+            if (
+                not np.isfinite(self.normarea)
+                or self.normarea <= 0
+                or not np.isfinite(total_area)
+                or total_area <= 0
+            ):
                 msg = "Grouped Gaussian normalization requires positive finite areas."
                 raise GlotaranUserError(msg)
             factor = self.normarea / total_area
@@ -569,7 +574,12 @@ class NormConvMultiMultiGaussianActivation(ConvMultiMultiGaussianActivation):
             total_area = float(
                 np.sum([p.scale * abs(p.width) for p in parameters]) * np.sqrt(2 * np.pi)
             )
-            if not np.isfinite(self.normarea) or self.normarea <= 0 or total_area <= 0:
+            if (
+                not np.isfinite(self.normarea)
+                or self.normarea <= 0
+                or not np.isfinite(total_area)
+                or total_area <= 0
+            ):
                 msg = "Grouped Gaussian normalization requires positive finite areas."
                 raise GlotaranUserError(msg)
             factor = self.normarea / total_area

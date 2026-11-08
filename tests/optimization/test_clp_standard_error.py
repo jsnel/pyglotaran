@@ -188,10 +188,11 @@ def test_linked_optimizer_attaches_clp_standard_errors_to_each_dataset() -> None
         assert np.any(uncertainty > 0)
 
 
-def test_clp_standard_error_rejects_non_negative_least_squares() -> None:
+@pytest.mark.parametrize("dataset_nnls", [False, True])
+def test_clp_standard_error_skips_non_negative_least_squares(dataset_nnls: bool) -> None:
     data_model = DataModel(
         elements=["decay_independent"],
-        residual_function="non_negative_least_squares",
+        residual_function="non_negative_least_squares" if dataset_nnls else "variable_projection",
     )
     experiment = ExperimentModel(
         datasets={"dataset": data_model}, residual_function="non_negative_least_squares"
@@ -203,35 +204,47 @@ def test_clp_standard_error_rejects_non_negative_least_squares() -> None:
         coords=(("global", axes["global"]), ("clp_label", ["c1", "c2"])),
     )
     data_model.data = simulate(data_model, test_library, parameters, axes, clp)
-    with pytest.raises(ValueError, match="variable_projection"):
-        Optimization(
+    data_model.data["data"].data += 1e-3 * np.sin(np.arange(40)).reshape(20, 2)
+    with pytest.warns(UserWarning, match="Skipping CLP standard-error"):
+        _, results, info = Optimization(
             models=[experiment],
             parameters=parameters,
             library=test_library,
             compute_clp_standard_error=True,
-        )
+            verbose=False,
+            raise_exception=True,
+            maximum_number_function_evaluations=5,
+        ).run()
+    assert results["dataset"].fit_decomposition.clp_standard_error is None
+    assert info.clp_standard_error_method is None
 
 
-def test_clp_standard_error_rejects_experiment_nnls_with_default_dataset_solver() -> None:
-    """The experiment controls the CLP objective even if its dataset uses the default."""
-    data_model = DataModel(elements=["decay_independent"])
-    experiment = ExperimentModel(
-        datasets={"dataset": data_model}, residual_function="non_negative_least_squares"
-    )
+def test_clp_standard_error_partial_for_mixed_solvers() -> None:
     parameters = Parameters.from_dict({"rates": {"decay": [0.8, 0.04]}})
     axes = {"global": np.arange(2), "model": np.arange(20)}
     clp = xr.DataArray(
         [[1.0, 2.0]] * 2,
         coords=(("global", axes["global"]), ("clp_label", ["c1", "c2"])),
     )
-    data_model.data = simulate(data_model, test_library, parameters, axes, clp)
-    with pytest.raises(ValueError, match="variable_projection"):
-        Optimization(
-            models=[experiment],
-            parameters=parameters,
+    experiments = []
+    for label, solver in [("vp", "variable_projection"), ("nnls", "non_negative_least_squares")]:
+        data_model = DataModel(elements=["decay_independent"])
+        data_model.data = simulate(data_model, test_library, parameters, axes, clp)
+        data_model.data["data"].data += 1e-3 * np.sin(np.arange(40)).reshape(20, 2)
+        experiments.append(ExperimentModel(datasets={label: data_model}, residual_function=solver))
+    with pytest.warns(UserWarning, match="Skipping CLP standard-error"):
+        _, results, info = Optimization(
+            models=experiments,
+            parameters=Parameters.from_dict({"rates": {"decay": [0.82, 0.05]}}),
             library=test_library,
             compute_clp_standard_error=True,
-        )
+            verbose=False,
+            raise_exception=True,
+            maximum_number_function_evaluations=5,
+        ).run()
+    assert results["vp"].fit_decomposition.clp_standard_error is not None
+    assert results["nnls"].fit_decomposition.clp_standard_error is None
+    assert info.clp_standard_error_method == "linear_plus_nonlinear_propagation"
 
 
 @pytest.mark.parametrize("mode", ["unlinked", "linked", "full", "linked-full"])

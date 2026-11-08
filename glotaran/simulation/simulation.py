@@ -104,14 +104,11 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
             (global_dimension, global_axis),
         ],
     )
-    global_matrix = (
-        OptimizationMatrix.from_data_model(
-            model, global_axis, model_axis, None, global_matrix=True
-        )
-        if model.global_elements
-        else None
-    )
-    if is_data_model_single_amplitude(model) and global_matrix is not None:
+    if is_data_model_single_amplitude(model):
+        if global_matrix is None:
+            global_matrix = OptimizationMatrix.from_data_model(
+                model, global_axis, model_axis, None, global_matrix=True
+            )
         global_matrix = OptimizationMatrix.align_paired_global(model, matrix, global_matrix)
     if model.scale_list is not None:
         if len(model.scale_list) != global_axis.size:
@@ -146,7 +143,7 @@ def simulate(  # noqa: C901, PLR0912, PLR0915
             amplitudes = (
                 np.ones(pair_matrix.shape[1])
                 if clp is None
-                else clp.isel({global_dimension: i}).to_numpy()
+                else clp.isel({global_dimension: i}).sel({"clp_label": matrix.clp_axis}).to_numpy()
             )
             result[:, i] = pair_matrix @ amplitudes
         else:

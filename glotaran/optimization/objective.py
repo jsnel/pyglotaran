@@ -221,6 +221,10 @@ class OptimizationResult(BaseModel):
     elements: dict[str, xr.Dataset] = Field(default_factory=dict)
     activations: dict[str, xr.Dataset] = Field(default_factory=dict)
     input_data: xr.DataArray | xr.Dataset
+    supplied_input_data: xr.DataArray | xr.Dataset | None = None
+    input_data_is_generated: bool = False
+    supplied_input_data_was_provided: bool = False
+    """Whether a generated result had supplied input, even if that input was not saved."""
     residuals: xr.DataArray | xr.Dataset | None = None
     fit_decomposition: FitDecomposition | None
     meta: OptimizationResultMetaData
@@ -247,7 +251,9 @@ class OptimizationResult(BaseModel):
         fitted_data.attrs |= self.meta.model_dump(exclude_defaults=True)
         return fitted_data
 
-    @field_serializer("input_data", "residuals", "fitted_data", when_used="json")
+    @field_serializer(
+        "input_data", "supplied_input_data", "residuals", "fitted_data", when_used="json"
+    )
     def serialize_top_level_datasets(
         self, value: xr.DataArray | xr.Dataset | None, info: SerializationInfo
     ) -> str | tuple[str, str] | list[str] | None:
@@ -322,14 +328,14 @@ class OptimizationResult(BaseModel):
                 save_path,
                 format_name=data_plugin,
                 allow_overwrite=True,
-                update_source_path=info.field_name != "input_data",
+                update_source_path=info.field_name not in {"input_data", "supplied_input_data"},
             )
             return save_path.name
 
         msg = f"SerializationInfo context is missing 'save_folder':\n{info}"
         raise ValueError(msg)
 
-    @field_validator("input_data", "residuals", mode="before")
+    @field_validator("input_data", "supplied_input_data", "residuals", mode="before")
     @classmethod
     def validate_top_level_datasets(
         cls,
@@ -576,7 +582,7 @@ class OptimizationResult(BaseModel):
                 if isinstance(serialized[field_name], str)
                 else serialized[field_name][0]
             )
-            for field_name in ["input_data", "residuals", "fitted_data"]
+            for field_name in ["input_data", "supplied_input_data", "residuals", "fitted_data"]
             if serialized.get(field_name) is not None
         )
         return (

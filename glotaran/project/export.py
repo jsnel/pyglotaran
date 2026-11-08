@@ -14,6 +14,7 @@ import xarray as xr
 
 from glotaran.builtin.io.yml.utils import load_dict
 from glotaran.builtin.io.yml.utils import write_dict
+from glotaran.model.errors import GlotaranUserError
 from glotaran.project.data_summary import summarize_data
 from glotaran.project.record import RECORD_SCHEMA_VERSION
 from glotaran.project.record import collect_environment
@@ -98,13 +99,36 @@ def export_result(
     temporary_folder = folder.with_name(f".{folder.name}.{uuid4().hex}.tmp")
     # Input data are always written as data: with ``input_data`` in the data filter,
     # ``Result.save`` would write a reference to the file the data was loaded from instead.
-    data_filter = set(saving_options.get("data_filter", set())) - {"input_data"}
+    data_filter = set(saving_options.get("data_filter", set())) - {
+        "input_data",
+        "supplied_input_data",
+    }
     metadata = export_metadata(result, changed_parameters)
     try:
         # A copy without the source path: saving sets it to the temporary folder, and
-        # result.yml would hold it as a local path
+        # result.yml would hold it as a local path. Copy input wrappers too: saving
+        # adds source metadata to arrays lacking it, and this export's temporary
+        # paths must not leak back into the original result. The array payloads
+        # remain shared.
+        optimization_results = {
+            label: optimization_result.model_copy(
+                update={
+                    "input_data": optimization_result.input_data.copy(deep=False),
+                    "supplied_input_data": (
+                        optimization_result.supplied_input_data.copy(deep=False)
+                        if optimization_result.supplied_input_data is not None
+                        else None
+                    ),
+                }
+            )
+            for label, optimization_result in result.optimization_results.items()
+        }
         result.model_copy(
-            update={"source_path": None, "scheme": scheme_to_save(result.scheme)}
+            update={
+                "source_path": None,
+                "scheme": scheme_to_save(result.scheme),
+                "optimization_results": optimization_results,
+            }
         ).save(
             temporary_folder,
             format_name="yml",
@@ -148,6 +172,20 @@ def export_metadata(result: Result, changed_parameters: list[str]) -> dict[str, 
     -------
     dict[str, Any]
     """
+    missing_inputs = [
+        label
+        for label, optimization_result in result.optimization_results.items()
+        if optimization_result.supplied_input_data_was_provided
+        and optimization_result.supplied_input_data is None
+    ]
+    if missing_inputs:
+        msg = (
+            "Cannot export because supplied input data are unavailable for "
+            f"{', '.join(missing_inputs)}. Save the result without filtering "
+            "'supplied_input_data' before exporting."
+        )
+        raise GlotaranUserError(msg)
+
     if result.record is not None and (result.record.path / "record.yml").is_file():
         record = read_record_file(result.record.path)
         source = record.get("source") or "unknown"
@@ -175,7 +213,16 @@ def export_metadata(result: Result, changed_parameters: list[str]) -> dict[str, 
                 if isinstance(input_data, xr.DataArray)
                 else input_data
             )
-            for label, input_data in result.input_data.items()
+            for label, optimization_result in result.optimization_results.items()
+            if (
+                not optimization_result.input_data_is_generated
+                or optimization_result.supplied_input_data is not None
+            )
+            for input_data in [
+                optimization_result.supplied_input_data
+                if optimization_result.supplied_input_data is not None
+                else optimization_result.input_data
+            ]
         },
         "summary": summarize_fit(result, converged=(record.get("summary") or {}).get("converged"))
         if original_fit is None
@@ -205,7 +252,12 @@ def copy_source_files(result: Result, folder: Path) -> dict[str, str | None]:
         it could not be copied.
     """
     copied: dict[str, str | None] = {}
-    for label, input_data in result.input_data.items():
+    for label, optimization_result in result.optimization_results.items():
+        input_data = (
+            optimization_result.supplied_input_data
+            if optimization_result.supplied_input_data is not None
+            else optimization_result.input_data
+        )
         if "io_plugin_name" not in input_data.attrs or "source_path" not in input_data.attrs:
             continue
         source_file = Path(input_data.attrs["source_path"]).resolve()

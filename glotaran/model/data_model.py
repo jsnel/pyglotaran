@@ -187,7 +187,8 @@ class DataModel(Item):
         description="The elements contributing to this dataset.",
         validator=validate_elements,
     )
-    element_scale: dict[str, ParameterType] | None = None
+    element_scale: dict[str, ParameterType] | list[ParameterType] | None = None
+    """Scales keyed by element label, or one scale per element in order."""
     normalize_element_scales: bool = False
     scale_list: list[ParameterType] | None = Attribute(
         default=None,
@@ -222,7 +223,8 @@ class DataModel(Item):
         description="The global elements contributing to this dataset.",
         validator=validate_global_elements,
     )
-    global_element_scale: dict[str, ParameterType] | None = None
+    global_element_scale: dict[str, ParameterType] | list[ParameterType] | None = None
+    """Scales keyed by global element label, or one scale per global element in order."""
     normalize_global_element_scales: bool = False
     residual_function: Literal["variable_projection", "non_negative_least_squares"] = Attribute(
         default="variable_projection", description="The residual function to use."
@@ -347,9 +349,14 @@ def iterate_data_model_elements(
         A scale and elements.
     """
     scales = data_model.element_scale
-    for element in data_model.elements:
+    if isinstance(scales, list) and len(scales) != len(data_model.elements):
+        msg = "The number of positional element scales must match the number of elements."
+        raise GlotaranModelError(msg)
+    for index, element in enumerate(data_model.elements):
         scale = None
-        if scales is not None:
+        if isinstance(scales, list):
+            scale = scales[index]
+        elif scales is not None:
             element_label = element if isinstance(element, str) else element.label
             scale = scales.get(element_label, 1)
         yield scale, element
@@ -371,11 +378,25 @@ def iterate_data_model_global_elements(
         A scale and element.
     """
     if data_model.global_elements is None:
+        if isinstance(data_model.global_element_scale, list) and data_model.global_element_scale:
+            msg = (
+                "The number of positional global element scales must match the number of "
+                "global elements."
+            )
+            raise GlotaranModelError(msg)
         return
     scales = data_model.global_element_scale
-    for element in data_model.global_elements:
+    if isinstance(scales, list) and len(scales) != len(data_model.global_elements):
+        msg = (
+            "The number of positional global element scales must match the number of "
+            "global elements."
+        )
+        raise GlotaranModelError(msg)
+    for index, element in enumerate(data_model.global_elements):
         scale = None
-        if scales is not None:
+        if isinstance(scales, list):
+            scale = scales[index]
+        elif scales is not None:
             element_label = element if isinstance(element, str) else element.label
             scale = scales.get(element_label, 1)
         yield scale, element
