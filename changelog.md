@@ -1,16 +1,14 @@
 # Changelog
 
-(changes-0_8_0)=
+(changes-0_8_1)=
 
-## 🚀 0.8.0 (2026-11-11)
+## 🚀 0.8.1 (Unreleased)
 
 ### 💥 BREAKING CHANGE
 
-- 🐍⬆️ Update minimum python version to 3.13 (#1621)
 - Experiment `scale` now applies to single-dataset fits, including full models.
 - A dataset's `scale_list` must be declared at either the dataset or experiment level.
   Declaring it at both levels now raises an error.
-
 
 ### ✨ Features
 
@@ -25,6 +23,32 @@
 - Export optimized parameter tables with derived T-values; reject duplicate
   parameter labels, warn about unknown table columns, and report initial bounds.
 - The Usage documentation maps the v0.7 `scale_list` settings to native v0.8 models.
+
+### 👌 Minor Improvements:
+
+- 👌 Fit an experiment with several datasets that all have `global_elements` as one linked
+  full model: datasets share the amplitude of each pair of global and model CLP labels. An
+  experiment that mixes datasets with and without `global_elements` is still rejected before
+  the fit; put such datasets in separate experiments to fit them independently, as in v0.7
+
+### 🩹 Bug fixes
+
+- Restore scale-sum normalization for grouped Gaussian activations with `normalize: true`
+  and `normalize_area: false`.
+- Use finite-difference steps within the bounds and divide by their actual displacement
+  when estimating CLP standard errors. The calculation uses optimizer coordinates and
+  restores the fitted values if evaluation fails.
+
+(changes-0_8_0)=
+
+## 🚀 0.8.0 (2026-11-11)
+
+### 💥 BREAKING CHANGE
+
+- 🐍⬆️ Update minimum python version to 3.13 (#1621)
+
+
+### ✨ Features
 
 - ✨ Add a native v0.8 PFID element for perturbed free-induction-decay fitting (#1510)
 - ✨ Add an opt-in project (`Project.start`) that records every fit run through
@@ -46,11 +70,6 @@
 
 ### 🩹 Bug fixes
 
-- Restore scale-sum normalization for grouped Gaussian activations with `normalize: true`
-  and `normalize_area: false`.
-- Use finite-difference steps within the bounds and divide by their actual displacement
-  when estimating CLP standard errors. The calculation uses optimizer coordinates and
-  restores the fitted values if evaluation fails.
 - 🩹 Save NumPy scalar coordinates as valid numbers in explicit ASCII files (#1591)
 - 🩹 Preserve CLP label ordering when combining element matrices with mixed dimensionality
   (#1512)

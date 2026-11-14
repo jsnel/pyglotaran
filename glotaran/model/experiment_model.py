@@ -128,17 +128,16 @@ class ExperimentModel(BaseModel):
             for dataset in self.datasets.values()
             for issue in get_item_issues(dataset, parameters)
         ]
-        if len(self.datasets) > 1:
-            issues.extend(
-                LinkedGlobalModelIssue(label)
-                for label, dataset in self.datasets.items()
-                if is_data_model_global(dataset)
-            )
+        global_labels = [
+            label for label, dataset in self.datasets.items() if is_data_model_global(dataset)
+        ]
+        if global_labels and len(global_labels) < len(self.datasets):
+            issues.extend(LinkedGlobalModelIssue(label) for label in global_labels)
         return issues
 
 
 class LinkedGlobalModelIssue(ItemIssue):
-    """Issue for a dataset with global elements in an experiment with several datasets."""
+    """Issue for a dataset with global elements in an experiment with ordinary datasets."""
 
     def __init__(self, label: str) -> None:
         """Create a LinkedGlobalModelIssue.
@@ -158,10 +157,10 @@ class LinkedGlobalModelIssue(ItemIssue):
         str
         """
         return (
-            f"Dataset '{self._label}' has global elements, but its experiment contains "
-            "several datasets. Linked datasets do not support global elements yet. "
-            "Put each dataset with global elements in its own experiment; experiments "
-            "can still share parameters."
+            f"Dataset '{self._label}' has global elements, but other datasets in its "
+            "experiment do not. An experiment cannot mix datasets with and without global "
+            "elements. Put the datasets with global elements in their own experiment; "
+            "experiments can still share parameters."
         )
 
 

@@ -453,7 +453,7 @@ def test_global_result_uses_experiment_residual_function():
 
 
 def test_linked_datasets_with_global_elements_are_rejected():
-    """Linked datasets do not support global elements, so this is reported as an issue."""
+    """Mixing datasets with and without global elements is reported as an issue."""
     linked = ExperimentModel(
         datasets={
             "global": deepcopy(TestDataModelGlobal),
@@ -463,13 +463,22 @@ def test_linked_datasets_with_global_elements_are_rejected():
     issues = linked.get_issues(Parameters({}))
     assert [type(issue) for issue in issues] == [LinkedGlobalModelIssue]
     assert issues[0].to_string() == (
-        "Dataset 'global' has global elements, but its experiment contains several datasets. "
-        "Linked datasets do not support global elements yet. Put each dataset with global "
-        "elements in its own experiment; experiments can still share parameters."
+        "Dataset 'global' has global elements, but other datasets in its experiment do not. "
+        "An experiment cannot mix datasets with and without global elements. Put the "
+        "datasets with global elements in their own experiment; experiments can still share "
+        "parameters."
     )
 
     single = ExperimentModel(datasets={"global": deepcopy(TestDataModelGlobal)})
     assert single.get_issues(Parameters({})) == []
+
+    all_global = ExperimentModel(
+        datasets={
+            "first": deepcopy(TestDataModelGlobal),
+            "second": deepcopy(TestDataModelGlobal),
+        }
+    )
+    assert all_global.get_issues(Parameters({})) == []
 
 
 @pytest.mark.parametrize(
